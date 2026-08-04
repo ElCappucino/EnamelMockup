@@ -3,8 +3,16 @@ import { ControlPanel } from './components/ControlPanel'
 import { PinCanvas } from './components/PinCanvas'
 import { DEFAULT_RAISED_HEIGHT } from './components/PinMesh'
 import { useEnamelTextures } from './hooks/useEnamelTextures'
+import { usePinPlacements } from './hooks/usePinPlacements'
 import { useTracedDesign } from './hooks/useTracedDesign'
-import { PLATINGS, PRODUCTS, type EnamelType, type PlatingId, type ProductId } from './types'
+import {
+  PLATINGS,
+  PRODUCTS,
+  type EnamelType,
+  type PinPlacement,
+  type PlatingId,
+  type ProductId,
+} from './types'
 
 function App() {
   const [file, setFile] = useState<File | null>(null)
@@ -16,6 +24,11 @@ function App() {
   const design = useTracedDesign(file)
   const platingColor = PLATINGS.find((p) => p.id === platingId)!.color
   const product = PRODUCTS.find((p) => p.id === productId)!
+
+  const { placements, update, reset } = usePinPlacements()
+  const placement = placements[productId]
+
+  const handlePlacementChange = (patch: Partial<PinPlacement>) => update(productId, patch)
 
   const { colorTexture, bumpTexture } = useEnamelTextures(
     design?.sourceCanvas ?? null,
@@ -37,6 +50,9 @@ function App() {
         onRaisedHeightChange={setRaisedHeight}
         productId={productId}
         onProductChange={setProductId}
+        placement={placement}
+        onPlacementChange={handlePlacementChange}
+        onPlacementReset={() => reset(productId)}
       />
       <main className="flex-1">
         <PinCanvas
@@ -49,6 +65,7 @@ function App() {
           uv={design?.uv ?? null}
           regions={design?.regions ?? null}
           product={product}
+          placement={placement}
           baseUrl={import.meta.env.BASE_URL}
         />
       </main>

@@ -21,13 +21,22 @@ export interface ProductBounds {
 
 interface ProductSceneProps {
   url: string
+  /** Pin diameter in the model's world units. */
   pinDiameter: number
+  /** Spin about the anchor's outward normal, in degrees. */
+  pinRollDeg: number
   /** The pin, already built. Rendered into the anchor's frame. */
   children: ReactNode
   onBounds: (bounds: ProductBounds) => void
 }
 
-export function ProductScene({ url, pinDiameter, children, onBounds }: ProductSceneProps) {
+export function ProductScene({
+  url,
+  pinDiameter,
+  pinRollDeg,
+  children,
+  onBounds,
+}: ProductSceneProps) {
   const { scene } = useGLTF(url)
 
   // useGLTF caches by URL, so the same Object3D would otherwise be attached in two places if the
@@ -71,8 +80,12 @@ export function ProductScene({ url, pinDiameter, children, onBounds }: ProductSc
     <>
       <primitive object={model} />
       {anchor && (
-        <group position={anchor.position} quaternion={anchor.quaternion} scale={pinScale}>
-          {children}
+        <group position={anchor.position} quaternion={anchor.quaternion}>
+          {/* Nested inside the anchor's frame, so Z here is the surface normal and the roll
+              spins the pin against the fabric rather than tilting it away from it. */}
+          <group rotation={[0, 0, (pinRollDeg * Math.PI) / 180]} scale={pinScale}>
+            {children}
+          </group>
         </group>
       )}
     </>

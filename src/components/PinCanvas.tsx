@@ -5,7 +5,7 @@ import { ACESFilmicToneMapping, BackSide, MathUtils } from 'three'
 import type { CanvasTexture, PerspectiveCamera, PointLight, Vector2 } from 'three'
 import type { UVTransform } from '../lib/contour'
 import type { RegionPiece } from '../hooks/useTracedDesign'
-import type { EnamelType, Product } from '../types'
+import { MM_PER_WORLD_UNIT, type EnamelType, type PinPlacement, type Product } from '../types'
 import { PinMesh } from './PinMesh'
 import { ProductScene, type ProductBounds } from './ProductScene'
 
@@ -93,6 +93,7 @@ interface PinCanvasProps {
   uv: UVTransform | null
   regions: RegionPiece[] | null
   product: Product
+  placement: PinPlacement
   baseUrl: string
 }
 
@@ -106,6 +107,7 @@ export function PinCanvas({
   uv,
   regions,
   product,
+  placement,
   baseUrl,
 }: PinCanvasProps) {
   const [bounds, setBounds] = useState<ProductBounds | null>(null)
@@ -174,7 +176,8 @@ export function PinCanvas({
           <ProductScene
             key={product.id}
             url={baseUrl + product.file}
-            pinDiameter={product.pinDiameter}
+            pinDiameter={placement.diameterMm / MM_PER_WORLD_UNIT}
+            pinRollDeg={placement.rollDeg}
             onBounds={handleBounds}
           >
             {pin}

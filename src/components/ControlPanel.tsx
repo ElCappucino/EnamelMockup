@@ -2,9 +2,12 @@ import { useRef, useState } from 'react'
 import { MIN_RAISED_HEIGHT, MAX_RAISED_HEIGHT } from './PinMesh'
 import {
   ENAMEL_TYPES,
+  MAX_PIN_DIAMETER_MM,
+  MIN_PIN_DIAMETER_MM,
   PLATINGS,
   PRODUCTS,
   type EnamelType,
+  type PinPlacement,
   type PlatingId,
   type ProductId,
 } from '../types'
@@ -20,6 +23,9 @@ interface ControlPanelProps {
   onRaisedHeightChange: (value: number) => void
   productId: ProductId
   onProductChange: (id: ProductId) => void
+  placement: PinPlacement
+  onPlacementChange: (patch: Partial<PinPlacement>) => void
+  onPlacementReset: () => void
 }
 
 export function ControlPanel({
@@ -33,6 +39,9 @@ export function ControlPanel({
   onRaisedHeightChange,
   productId,
   onProductChange,
+  placement,
+  onPlacementChange,
+  onPlacementReset,
 }: ControlPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
@@ -45,7 +54,7 @@ export function ControlPanel({
   }
 
   return (
-    <aside className="w-80 shrink-0 border-r border-white/10 bg-[#151517] p-6 flex flex-col gap-8">
+    <aside className="w-80 shrink-0 overflow-y-auto border-r border-white/10 bg-[#151517] p-6 flex flex-col gap-8">
       <div>
         <h1 className="text-lg font-semibold tracking-tight">Enamel Pin Studio</h1>
         <p className="text-sm text-white/50 mt-1">
@@ -181,6 +190,50 @@ export function ControlPanel({
           ))}
         </div>
       </div>
+
+      {productId !== 'none' && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm font-medium text-white/70">Pin Placement</label>
+            <button
+              onClick={onPlacementReset}
+              className="text-xs text-white/40 hover:text-white/70"
+            >
+              Reset
+            </button>
+          </div>
+
+          <label className="text-xs text-white/50 mb-1 flex items-center justify-between">
+            <span>Rotation</span>
+            <span className="text-white/40">{Math.round(placement.rollDeg)}°</span>
+          </label>
+          <input
+            type="range"
+            min={-180}
+            max={180}
+            step={1}
+            value={placement.rollDeg}
+            onChange={(e) => onPlacementChange({ rollDeg: Number(e.target.value) })}
+            className="w-full accent-blue-400 mb-3"
+          />
+
+          <label className="text-xs text-white/50 mb-1 flex items-center justify-between">
+            <span>Size</span>
+            <span className="text-white/40">{Math.round(placement.diameterMm)} mm</span>
+          </label>
+          <input
+            type="range"
+            min={MIN_PIN_DIAMETER_MM}
+            max={MAX_PIN_DIAMETER_MM}
+            step={1}
+            value={placement.diameterMm}
+            onChange={(e) => onPlacementChange({ diameterMm: Number(e.target.value) })}
+            className="w-full accent-blue-400"
+          />
+
+          <p className="mt-2 text-xs text-white/30">Saved per product.</p>
+        </div>
+      )}
 
       <div className="mt-auto text-xs text-white/30">
         Drag to rotate. Scroll to zoom.

@@ -28,19 +28,51 @@ export const ENAMEL_TYPES: EnamelOption[] = [
 
 export type ProductId = 'none' | 'toteBag' | 'denimJacket' | 'denimCap'
 
+/** All three product models are authored at roughly 1 world unit = 10cm, which lets the size
+ * control be expressed in millimetres instead of abstract units. A model at a different scale
+ * would need this reconsidered. */
+export const MM_PER_WORLD_UNIT = 100
+
+/** How the pin sits on a product. The anchor baked into each model already fixes position and
+ * makes the pin face outward; these are the adjustments left on top of that. */
+export interface PinPlacement {
+  /** Spin about the surface normal, in degrees. Pitch and yaw are deliberately not exposed —
+   * they would tilt the pin off the fabric it is supposed to be lying against. */
+  rollDeg: number
+  /** Pin diameter in millimetres. */
+  diameterMm: number
+}
+
 export interface Product {
   id: ProductId
   label: string
   /** Served from public/, so the deploy base path has to be prepended at load time. */
   file: string | null
-  /** Pin diameter in the model's world units. These models all sit at roughly 1 unit = 10cm,
-   * so 0.32 gives a ~32mm pin — a common real-world enamel pin size. */
-  pinDiameter: number
+  /** Starting placement, overridden by anything the user has saved for this product. */
+  defaultPlacement: PinPlacement
 }
 
 export const PRODUCTS: Product[] = [
-  { id: 'none', label: 'Pin only', file: null, pinDiameter: 0 },
-  { id: 'toteBag', label: 'Tote Bag', file: 'models/tote-bag.glb', pinDiameter: 0.32 },
-  { id: 'denimJacket', label: 'Denim Jacket', file: 'models/denim-jacket.glb', pinDiameter: 0.32 },
-  { id: 'denimCap', label: 'Cap', file: 'models/denim-cap.glb', pinDiameter: 0.28 },
+  { id: 'none', label: 'Pin only', file: null, defaultPlacement: { rollDeg: 0, diameterMm: 32 } },
+  {
+    id: 'toteBag',
+    label: 'Tote Bag',
+    file: 'models/tote-bag.glb',
+    defaultPlacement: { rollDeg: 0, diameterMm: 32 },
+  },
+  {
+    id: 'denimJacket',
+    label: 'Denim Jacket',
+    file: 'models/denim-jacket.glb',
+    defaultPlacement: { rollDeg: 0, diameterMm: 32 },
+  },
+  {
+    id: 'denimCap',
+    label: 'Cap',
+    file: 'models/denim-cap.glb',
+    defaultPlacement: { rollDeg: 0, diameterMm: 28 },
+  },
 ]
+
+export const MIN_PIN_DIAMETER_MM = 10
+export const MAX_PIN_DIAMETER_MM = 80
