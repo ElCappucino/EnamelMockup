@@ -1,11 +1,17 @@
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, ContactShadows, Environment, Lightformer, Html } from '@react-three/drei'
 import { ACESFilmicToneMapping, BackSide, MathUtils } from 'three'
 import type { CanvasTexture, PerspectiveCamera, PointLight, Vector2 } from 'three'
 import type { UVTransform } from '../lib/contour'
 import type { RegionPiece } from '../hooks/useTracedDesign'
-import { MM_PER_WORLD_UNIT, type EnamelType, type PinPlacement, type Product } from '../types'
+import {
+  MM_PER_WORLD_UNIT,
+  type EnamelType,
+  type PinPlacement,
+  type Product,
+  type ProductId,
+} from '../types'
 import { PinMesh } from './PinMesh'
 import { ProductScene, type ProductBounds } from './ProductScene'
 
@@ -52,16 +58,41 @@ function StudioEnvironment() {
 
 const PIN_ONLY_CAMERA: [number, number, number] = [0, 0.4, 6.2]
 
+/** Hoisted so it isn't a fresh object on every render, which would have R3F re-applying the
+ * camera's initial props. */
+const CAMERA_PROPS = { position: PIN_ONLY_CAMERA, fov: 32 }
+const GL_PROPS = {
+  antialias: true,
+  toneMapping: ACESFilmicToneMapping,
+  toneMappingExposure: 1.1,
+}
+
 /** Pulls the camera back far enough to frame whatever is on screen. Products differ hugely in
- * size — the tote is ~7.5 units tall, the cap ~1.6 — so a fixed distance can't serve both. */
-function CameraRig({ bounds }: { bounds: ProductBounds | null }) {
-  const { camera, size } = useThree()
+ * size — the tote is ~7.5 units tall, the cap ~1.6 — so a fixed distance can't serve both.
+ *
+ * Framing happens once per product and never again. Anything that re-runs this effect on an
+ * ordinary re-render would otherwise snatch the camera back from wherever the user had orbited
+ * to, every time they touched a slider. Keying off the product rather than the effect's inputs
+ * makes that impossible regardless of which dependency churns. */
+function CameraRig({ bounds, productId }: { bounds: ProductBounds | null; productId: ProductId }) {
+  // Individual selectors, so this doesn't re-render on unrelated store updates.
+  const camera = useThree((state) => state.camera)
+  const size = useThree((state) => state.size)
+  const framedFor = useRef<ProductId | null>(null)
 
   useEffect(() => {
+    if (framedFor.current === productId) return
     const cam = camera as PerspectiveCamera
+
     if (!bounds) {
+      // A product is selected but hasn't been measured yet — wait rather than framing on the
+      // previous product's bounds.
+      if (productId !== 'none') return
       cam.position.set(...PIN_ONLY_CAMERA)
+      cam.near = 0.1
+      cam.far = 100
       cam.updateProjectionMatrix()
+      framedFor.current = productId
       return
     }
 
@@ -78,7 +109,8 @@ function CameraRig({ bounds }: { bounds: ProductBounds | null }) {
     cam.near = Math.max(dist / 500, 0.01)
     cam.far = dist * 10
     cam.updateProjectionMatrix()
-  }, [bounds, camera, size])
+    framedFor.current = productId
+  }, [productId, bounds, camera, size])
 
   return null
 }
@@ -113,11 +145,12 @@ export function PinCanvas({
   const [bounds, setBounds] = useState<ProductBounds | null>(null)
   const showProduct = product.file !== null
 
-  // Drop stale framing the moment the product changes, so the rig doesn't briefly frame the
-  // previous model at the new one's scale.
+  // Drop stale framing the moment the product changes. The rig waits for bounds before framing,
+  // so without this it would measure the new product against the previous one's box and then
+  // consider itself done.
   useEffect(() => {
-    if (!showProduct) setBounds(null)
-  }, [product.id, showProduct])
+    setBounds(null)
+  }, [product.id])
 
   const handleBounds = useCallback((next: ProductBounds) => setBounds(next), [])
 
@@ -135,7 +168,12 @@ export function PinCanvas({
     />
   )
 
-  const target: [number, number, number] = bounds ? bounds.center : [0, 0, 0]
+  // Memoised so the array identity is stable across renders — a fresh array each time would have
+  // drei re-applying the orbit target continuously.
+  const target = useMemo<[number, number, number]>(
+    () => (bounds ? bounds.center : [0, 0, 0]),
+    [bounds],
+  )
   const orbitLimits = bounds
     ? { min: bounds.radius * 0.6, max: bounds.radius * 8 }
     : { min: 2.4, max: 7 }
@@ -144,8 +182,8 @@ export function PinCanvas({
     <Canvas
       shadows
       dpr={[1, 2]}
-      camera={{ position: PIN_ONLY_CAMERA, fov: 32 }}
-      gl={{ antialias: true, toneMapping: ACESFilmicToneMapping, toneMappingExposure: 1.1 }}
+      camera={CAMERA_PROPS}
+      gl={GL_PROPS}
     >
       <color attach="background" args={['#1b1b1f']} />
 
@@ -198,7 +236,7 @@ export function PinCanvas({
         />
       )}
 
-      <CameraRig bounds={showProduct ? bounds : null} />
+      <CameraRig bounds={showProduct ? bounds : null} productId={product.id} />
 
       <OrbitControls
         makeDefault
