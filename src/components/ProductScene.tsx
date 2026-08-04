@@ -23,6 +23,8 @@ interface ProductSceneProps {
   url: string
   /** Pin diameter in the model's world units. */
   pinDiameter: number
+  /** Offset from the anchor along its own axes, in the model's world units. */
+  pinOffset: [number, number, number]
   /** Pitch, yaw and roll in degrees, applied in the anchor's own frame. */
   pinRotationDeg: [number, number, number]
   /** The pin, already built. Rendered into the anchor's frame. */
@@ -35,6 +37,7 @@ const toRad = (deg: number) => (deg * Math.PI) / 180
 export function ProductScene({
   url,
   pinDiameter,
+  pinOffset,
   pinRotationDeg,
   children,
   onBounds,
@@ -86,8 +89,12 @@ export function ProductScene({
           {/* Nested inside the anchor's frame, so Z here is the surface normal: roll spins the
               pin flat against the fabric, while pitch and yaw tilt it off that plane. Three.js
               applies its default XYZ Euler as Rx·Ry·Rz, so roll resolves first and the tilts
-              then act on an already-oriented pin. */}
+              then act on an already-oriented pin.
+
+              position resolves in this group's parent — the anchor — so the offset slides along
+              the anchor's own axes and stays independent of the pin's rotation and scale. */}
           <group
+            position={pinOffset}
             rotation={[
               toRad(pinRotationDeg[0]),
               toRad(pinRotationDeg[1]),

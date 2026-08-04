@@ -4,6 +4,7 @@ import {
   ENAMEL_TYPES,
   MAX_PIN_DIAMETER_MM,
   MIN_PIN_DIAMETER_MM,
+  PIN_OFFSET_RANGE_MM,
   PLATINGS,
   PRODUCTS,
   type EnamelType,
@@ -240,6 +241,30 @@ export function ControlPanel({
             </button>
           </div>
 
+          <PlacementSlider
+            label="X — across"
+            unit=" mm"
+            min={-PIN_OFFSET_RANGE_MM}
+            max={PIN_OFFSET_RANGE_MM}
+            value={placement.offsetXMm}
+            onChange={(offsetXMm) => onPlacementChange({ offsetXMm })}
+          />
+          <PlacementSlider
+            label="Y — up"
+            unit=" mm"
+            min={-PIN_OFFSET_RANGE_MM}
+            max={PIN_OFFSET_RANGE_MM}
+            value={placement.offsetYMm}
+            onChange={(offsetYMm) => onPlacementChange({ offsetYMm })}
+          />
+          <PlacementSlider
+            label="Z — off surface"
+            unit=" mm"
+            min={-PIN_OFFSET_RANGE_MM}
+            max={PIN_OFFSET_RANGE_MM}
+            value={placement.offsetZMm}
+            onChange={(offsetZMm) => onPlacementChange({ offsetZMm })}
+          />
           <PlacementSlider
             label="Pitch"
             unit="°"

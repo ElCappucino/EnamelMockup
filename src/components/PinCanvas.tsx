@@ -215,6 +215,11 @@ export function PinCanvas({
             key={product.id}
             url={baseUrl + product.file}
             pinDiameter={placement.diameterMm / MM_PER_WORLD_UNIT}
+            pinOffset={[
+              placement.offsetXMm / MM_PER_WORLD_UNIT,
+              placement.offsetYMm / MM_PER_WORLD_UNIT,
+              placement.offsetZMm / MM_PER_WORLD_UNIT,
+            ]}
             pinRotationDeg={[placement.pitchDeg, placement.yawDeg, placement.rollDeg]}
             onBounds={handleBounds}
           >
