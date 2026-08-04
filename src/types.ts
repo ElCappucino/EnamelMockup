@@ -33,11 +33,14 @@ export type ProductId = 'none' | 'toteBag' | 'denimJacket' | 'denimCap'
  * would need this reconsidered. */
 export const MM_PER_WORLD_UNIT = 100
 
-/** How the pin sits on a product. The anchor baked into each model already fixes position and
- * makes the pin face outward; these are the adjustments left on top of that. */
+/** How the pin sits on a product, applied on top of the anchor baked into each model. All three
+ * angles are in the anchor's own frame, so they stay meaningful whichever way the anchor faces. */
 export interface PinPlacement {
-  /** Spin about the surface normal, in degrees. Pitch and yaw are deliberately not exposed —
-   * they would tilt the pin off the fabric it is supposed to be lying against. */
+  /** Tilt about the anchor's local X — leans the pin's top toward or away from the surface. */
+  pitchDeg: number
+  /** Swivel about the anchor's local Y — turns one side edge away from the surface. */
+  yawDeg: number
+  /** Spin about the anchor's outward normal (local Z) — which way is "up" on the design. */
   rollDeg: number
   /** Pin diameter in millimetres. */
   diameterMm: number
@@ -52,27 +55,37 @@ export interface Product {
   defaultPlacement: PinPlacement
 }
 
+const LEVEL = { pitchDeg: 0, yawDeg: 0, rollDeg: 0 }
+
 export const PRODUCTS: Product[] = [
-  { id: 'none', label: 'Pin only', file: null, defaultPlacement: { rollDeg: 0, diameterMm: 32 } },
+  { id: 'none', label: 'Pin only', file: null, defaultPlacement: { ...LEVEL, diameterMm: 32 } },
   {
     id: 'toteBag',
     label: 'Tote Bag',
     file: 'models/tote-bag.glb',
-    defaultPlacement: { rollDeg: 0, diameterMm: 32 },
+    defaultPlacement: { ...LEVEL, diameterMm: 32 },
   },
   {
     id: 'denimJacket',
     label: 'Denim Jacket',
     file: 'models/denim-jacket.glb',
-    defaultPlacement: { rollDeg: 0, diameterMm: 32 },
+    defaultPlacement: { ...LEVEL, diameterMm: 32 },
   },
   {
     id: 'denimCap',
     label: 'Cap',
     file: 'models/denim-cap.glb',
-    defaultPlacement: { rollDeg: 0, diameterMm: 28 },
+    defaultPlacement: { ...LEVEL, diameterMm: 28 },
   },
 ]
 
 export const MIN_PIN_DIAMETER_MM = 10
 export const MAX_PIN_DIAMETER_MM = 80
+
+/** Every numeric field of a placement, used to validate stored data field by field. */
+export const PLACEMENT_KEYS: (keyof PinPlacement)[] = [
+  'pitchDeg',
+  'yawDeg',
+  'rollDeg',
+  'diameterMm',
+]

@@ -177,7 +177,7 @@ export function PinCanvas({
             key={product.id}
             url={baseUrl + product.file}
             pinDiameter={placement.diameterMm / MM_PER_WORLD_UNIT}
-            pinRollDeg={placement.rollDeg}
+            pinRotationDeg={[placement.pitchDeg, placement.yawDeg, placement.rollDeg]}
             onBounds={handleBounds}
           >
             {pin}

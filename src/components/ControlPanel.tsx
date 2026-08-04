@@ -12,6 +12,43 @@ import {
   type ProductId,
 } from '../types'
 
+function PlacementSlider({
+  label,
+  unit,
+  min,
+  max,
+  value,
+  onChange,
+}: {
+  label: string
+  unit: string
+  min: number
+  max: number
+  value: number
+  onChange: (value: number) => void
+}) {
+  return (
+    <>
+      <label className="text-xs text-white/50 mb-1 flex items-center justify-between">
+        <span>{label}</span>
+        <span className="text-white/40">
+          {Math.round(value)}
+          {unit}
+        </span>
+      </label>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full accent-blue-400 mb-3"
+      />
+    </>
+  )
+}
+
 interface ControlPanelProps {
   file: File | null
   onFileChange: (file: File | null) => void
@@ -203,35 +240,40 @@ export function ControlPanel({
             </button>
           </div>
 
-          <label className="text-xs text-white/50 mb-1 flex items-center justify-between">
-            <span>Rotation</span>
-            <span className="text-white/40">{Math.round(placement.rollDeg)}°</span>
-          </label>
-          <input
-            type="range"
+          <PlacementSlider
+            label="Pitch"
+            unit="°"
             min={-180}
             max={180}
-            step={1}
-            value={placement.rollDeg}
-            onChange={(e) => onPlacementChange({ rollDeg: Number(e.target.value) })}
-            className="w-full accent-blue-400 mb-3"
+            value={placement.pitchDeg}
+            onChange={(pitchDeg) => onPlacementChange({ pitchDeg })}
           />
-
-          <label className="text-xs text-white/50 mb-1 flex items-center justify-between">
-            <span>Size</span>
-            <span className="text-white/40">{Math.round(placement.diameterMm)} mm</span>
-          </label>
-          <input
-            type="range"
+          <PlacementSlider
+            label="Yaw"
+            unit="°"
+            min={-180}
+            max={180}
+            value={placement.yawDeg}
+            onChange={(yawDeg) => onPlacementChange({ yawDeg })}
+          />
+          <PlacementSlider
+            label="Roll"
+            unit="°"
+            min={-180}
+            max={180}
+            value={placement.rollDeg}
+            onChange={(rollDeg) => onPlacementChange({ rollDeg })}
+          />
+          <PlacementSlider
+            label="Size"
+            unit=" mm"
             min={MIN_PIN_DIAMETER_MM}
             max={MAX_PIN_DIAMETER_MM}
-            step={1}
             value={placement.diameterMm}
-            onChange={(e) => onPlacementChange({ diameterMm: Number(e.target.value) })}
-            className="w-full accent-blue-400"
+            onChange={(diameterMm) => onPlacementChange({ diameterMm })}
           />
 
-          <p className="mt-2 text-xs text-white/30">Saved per product.</p>
+          <p className="mt-1 text-xs text-white/30">Saved per product.</p>
         </div>
       )}
 

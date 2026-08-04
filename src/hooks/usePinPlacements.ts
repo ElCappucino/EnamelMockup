@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { PRODUCTS, type PinPlacement, type ProductId } from '../types'
+import { PLACEMENT_KEYS, PRODUCTS, type PinPlacement, type ProductId } from '../types'
 
 const STORAGE_KEY = 'enamel-pin-placements-v1'
 
@@ -23,11 +23,13 @@ function load(): PlacementMap {
     for (const product of PRODUCTS) {
       const entry = saved[product.id]
       if (!entry) continue
-      if (typeof entry.rollDeg === 'number' && Number.isFinite(entry.rollDeg)) {
-        base[product.id].rollDeg = entry.rollDeg
-      }
-      if (typeof entry.diameterMm === 'number' && Number.isFinite(entry.diameterMm)) {
-        base[product.id].diameterMm = entry.diameterMm
+      // Field by field, so data written before a field existed still loads and simply picks up
+      // the default for anything missing.
+      for (const key of PLACEMENT_KEYS) {
+        const value = entry[key]
+        if (typeof value === 'number' && Number.isFinite(value)) {
+          base[product.id][key] = value
+        }
       }
     }
   } catch {
