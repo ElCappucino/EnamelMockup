@@ -13,6 +13,10 @@ dist-ssr
 *.local
 *.tsbuildinfo
 
+# Uncompressed source models. The compressed versions in public/models are what ship;
+# these stay local so the repo doesn't carry ~28MB of duplicates in its history.
+test-assets/*.glb
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

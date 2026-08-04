@@ -1,6 +1,13 @@
 import { useRef, useState } from 'react'
 import { MIN_RAISED_HEIGHT, MAX_RAISED_HEIGHT } from './PinMesh'
-import { ENAMEL_TYPES, PLATINGS, type EnamelType, type PlatingId } from '../types'
+import {
+  ENAMEL_TYPES,
+  PLATINGS,
+  PRODUCTS,
+  type EnamelType,
+  type PlatingId,
+  type ProductId,
+} from '../types'
 
 interface ControlPanelProps {
   file: File | null
@@ -11,6 +18,8 @@ interface ControlPanelProps {
   onEnamelTypeChange: (id: EnamelType) => void
   raisedHeight: number
   onRaisedHeightChange: (value: number) => void
+  productId: ProductId
+  onProductChange: (id: ProductId) => void
 }
 
 export function ControlPanel({
@@ -22,6 +31,8 @@ export function ControlPanel({
   onEnamelTypeChange,
   raisedHeight,
   onRaisedHeightChange,
+  productId,
+  onProductChange,
 }: ControlPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
@@ -152,8 +163,27 @@ export function ControlPanel({
         </div>
       </div>
 
+      <div>
+        <label className="text-sm font-medium text-white/70 mb-2 block">Show On</label>
+        <div className="grid grid-cols-2 gap-2">
+          {PRODUCTS.map((product) => (
+            <button
+              key={product.id}
+              onClick={() => onProductChange(product.id)}
+              className={`rounded-md border px-3 py-2 text-sm transition-colors ${
+                productId === product.id
+                  ? 'border-blue-400 bg-blue-400/10 text-white'
+                  : 'border-white/10 text-white/70 hover:border-white/25'
+              }`}
+            >
+              {product.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="mt-auto text-xs text-white/30">
-        Drag to rotate the pin. Scroll to zoom.
+        Drag to rotate. Scroll to zoom.
       </div>
     </aside>
   )

@@ -1,12 +1,13 @@
-import { useRef } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { OrbitControls, ContactShadows, Environment, Lightformer } from '@react-three/drei'
-import { ACESFilmicToneMapping, BackSide } from 'three'
-import type { CanvasTexture, PointLight, Vector2 } from 'three'
+import { OrbitControls, ContactShadows, Environment, Lightformer, Html } from '@react-three/drei'
+import { ACESFilmicToneMapping, BackSide, MathUtils } from 'three'
+import type { CanvasTexture, PerspectiveCamera, PointLight, Vector2 } from 'three'
 import type { UVTransform } from '../lib/contour'
 import type { RegionPiece } from '../hooks/useTracedDesign'
-import type { EnamelType } from '../types'
+import type { EnamelType, Product } from '../types'
 import { PinMesh } from './PinMesh'
+import { ProductScene, type ProductBounds } from './ProductScene'
 
 /** A light that follows the camera, so whatever face is turned toward the viewer stays lit
  * regardless of orbit angle — keeps recessed cavity walls from going pitch black. */
@@ -49,6 +50,39 @@ function StudioEnvironment() {
   )
 }
 
+const PIN_ONLY_CAMERA: [number, number, number] = [0, 0.4, 6.2]
+
+/** Pulls the camera back far enough to frame whatever is on screen. Products differ hugely in
+ * size — the tote is ~7.5 units tall, the cap ~1.6 — so a fixed distance can't serve both. */
+function CameraRig({ bounds }: { bounds: ProductBounds | null }) {
+  const { camera, size } = useThree()
+
+  useEffect(() => {
+    const cam = camera as PerspectiveCamera
+    if (!bounds) {
+      cam.position.set(...PIN_ONLY_CAMERA)
+      cam.updateProjectionMatrix()
+      return
+    }
+
+    const [cx, cy, cz] = bounds.center
+    const vFov = MathUtils.degToRad(cam.fov)
+    const aspect = size.width / Math.max(size.height, 1)
+    // Fit vertically and horizontally, then take whichever needs more room.
+    const distV = bounds.radius / Math.sin(vFov / 2)
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect)
+    const distH = bounds.radius / Math.sin(hFov / 2)
+    const dist = Math.max(distV, distH) * 1.15
+
+    cam.position.set(cx, cy, cz + dist)
+    cam.near = Math.max(dist / 500, 0.01)
+    cam.far = dist * 10
+    cam.updateProjectionMatrix()
+  }, [bounds, camera, size])
+
+  return null
+}
+
 interface PinCanvasProps {
   platingColor: string
   enamelType: EnamelType
@@ -58,6 +92,8 @@ interface PinCanvasProps {
   outline: Vector2[] | null
   uv: UVTransform | null
   regions: RegionPiece[] | null
+  product: Product
+  baseUrl: string
 }
 
 export function PinCanvas({
@@ -69,12 +105,44 @@ export function PinCanvas({
   outline,
   uv,
   regions,
+  product,
+  baseUrl,
 }: PinCanvasProps) {
+  const [bounds, setBounds] = useState<ProductBounds | null>(null)
+  const showProduct = product.file !== null
+
+  // Drop stale framing the moment the product changes, so the rig doesn't briefly frame the
+  // previous model at the new one's scale.
+  useEffect(() => {
+    if (!showProduct) setBounds(null)
+  }, [product.id, showProduct])
+
+  const handleBounds = useCallback((next: ProductBounds) => setBounds(next), [])
+
+  const pin = (
+    <PinMesh
+      platingColor={platingColor}
+      enamelType={enamelType}
+      raisedHeight={raisedHeight}
+      colorTexture={colorTexture}
+      bumpTexture={bumpTexture}
+      outline={outline}
+      uv={uv}
+      regions={regions}
+      showPost={!showProduct}
+    />
+  )
+
+  const target: [number, number, number] = bounds ? bounds.center : [0, 0, 0]
+  const orbitLimits = bounds
+    ? { min: bounds.radius * 0.6, max: bounds.radius * 8 }
+    : { min: 2.4, max: 7 }
+
   return (
     <Canvas
       shadows
       dpr={[1, 2]}
-      camera={{ position: [0, 0.4, 6.2], fov: 32 }}
+      camera={{ position: PIN_ONLY_CAMERA, fov: 32 }}
       gl={{ antialias: true, toneMapping: ACESFilmicToneMapping, toneMappingExposure: 1.1 }}
     >
       <color attach="background" args={['#1b1b1f']} />
@@ -95,30 +163,46 @@ export function PinCanvas({
       <directionalLight position={[-3, 2, -2]} intensity={0.35} color="#a5c8ff" />
       <CameraLight />
 
-      <PinMesh
-        platingColor={platingColor}
-        enamelType={enamelType}
-        raisedHeight={raisedHeight}
-        colorTexture={colorTexture}
-        bumpTexture={bumpTexture}
-        outline={outline}
-        uv={uv}
-        regions={regions}
-      />
+      <Suspense
+        fallback={
+          <Html center>
+            <div className="text-sm text-white/60 whitespace-nowrap">Loading model…</div>
+          </Html>
+        }
+      >
+        {showProduct ? (
+          <ProductScene
+            key={product.id}
+            url={baseUrl + product.file}
+            pinDiameter={product.pinDiameter}
+            onBounds={handleBounds}
+          >
+            {pin}
+          </ProductScene>
+        ) : (
+          pin
+        )}
+      </Suspense>
 
-      <ContactShadows
-        position={[0, -0.9, 0]}
-        opacity={0.55}
-        scale={6}
-        blur={2.6}
-        far={2}
-        resolution={1024}
-      />
+      {!showProduct && (
+        <ContactShadows
+          position={[0, -0.9, 0]}
+          opacity={0.55}
+          scale={6}
+          blur={2.6}
+          far={2}
+          resolution={1024}
+        />
+      )}
+
+      <CameraRig bounds={showProduct ? bounds : null} />
 
       <OrbitControls
+        makeDefault
+        target={target}
         enablePan={false}
-        minDistance={2.4}
-        maxDistance={7}
+        minDistance={orbitLimits.min}
+        maxDistance={orbitLimits.max}
         minPolarAngle={Math.PI / 4}
         maxPolarAngle={Math.PI - Math.PI / 4}
       />

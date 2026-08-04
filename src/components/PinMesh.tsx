@@ -14,6 +14,9 @@ interface PinMeshProps {
   outline: Vector2[] | null
   uv: UVTransform | null
   regions: RegionPiece[] | null
+  /** Hidden when the pin sits on a product — the post would otherwise pierce thin fabric geometry
+   * and show through the back. */
+  showPost?: boolean
 }
 
 const RADIUS = 1
@@ -140,6 +143,7 @@ export function PinMesh({
   outline,
   uv,
   regions,
+  showPost = true,
 }: PinMeshProps) {
   const curveSegments = outline ? 1 : 64
   const hasRegions = !!regions && regions.length > 0
@@ -270,10 +274,17 @@ export function PinMesh({
       )}
 
       {/* Pin post (back hardware, purely decorative) */}
-      <mesh position={[0.3, 0, -(BODY_THICKNESS / 2 + 0.25)]} rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[0.05, 0.05, 0.5, 16]} />
-        <meshStandardMaterial color="#c7c9cc" metalness={1} roughness={0.35} envMapIntensity={1.1} />
-      </mesh>
+      {showPost && (
+        <mesh position={[0.3, 0, -(BODY_THICKNESS / 2 + 0.25)]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.05, 0.05, 0.5, 16]} />
+          <meshStandardMaterial
+            color="#c7c9cc"
+            metalness={1}
+            roughness={0.35}
+            envMapIntensity={1.1}
+          />
+        </mesh>
+      )}
     </group>
   )
 }
