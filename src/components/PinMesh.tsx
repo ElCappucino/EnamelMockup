@@ -246,11 +246,11 @@ export function PinMesh({
             <mesh key={i} geometry={piece.geometry} castShadow>
               <meshPhysicalMaterial
                 color={piece.color}
-                roughness={0.3}
-                clearcoat={1}
-                clearcoatRoughness={0.08}
+                roughness={0.5}
+                clearcoat={0.5}
+                clearcoatRoughness={0.4}
                 metalness={0}
-                envMapIntensity={0.75}
+                envMapIntensity={0.35}
               />
             </mesh>
           ))}
@@ -262,10 +262,11 @@ export function PinMesh({
               map={colorTexture}
               bumpMap={bumpTexture ?? undefined}
               bumpScale={bumpTexture ? 0.015 : 0}
-              roughness={0.25}
-              clearcoat={1}
-              clearcoatRoughness={0.15}
+              roughness={0.5}
+              clearcoat={0.5}
+              clearcoatRoughness={0.4}
               metalness={0}
+              envMapIntensity={0.35}
             />
           ) : (
             <meshStandardMaterial color="#3a3a3f" roughness={0.6} />
