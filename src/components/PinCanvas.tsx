@@ -126,6 +126,8 @@ interface PinCanvasProps {
   outline: Vector2[] | null
   uv: UVTransform | null
   regions: RegionPiece[] | null
+  cells: RegionPiece[] | null
+  islands: Vector2[][] | null
   product: Product
   placement: PinPlacement
   baseUrl: string
@@ -142,6 +144,8 @@ export function PinCanvas({
   outline,
   uv,
   regions,
+  cells,
+  islands,
   product,
   placement,
   baseUrl,
@@ -170,6 +174,8 @@ export function PinCanvas({
       outline={outline}
       uv={uv}
       regions={regions}
+      cells={cells}
+      islands={islands}
       showPost={!showProduct}
     />
   )

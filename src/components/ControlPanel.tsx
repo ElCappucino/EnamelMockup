@@ -1,6 +1,12 @@
 import { useRef, useState } from 'react'
 import { MIN_RAISED_HEIGHT, MAX_RAISED_HEIGHT } from './PinMesh'
 import { MIN_LINE_THRESHOLD, MAX_LINE_THRESHOLD } from '../hooks/useTracedDesign'
+import {
+  MAX_OUTLINE_TOLERANCE,
+  MIN_OUTLINE_TOLERANCE,
+  type OutlineMode,
+  type OutlineSource,
+} from '../lib/outline'
 import type { ColorSamplingMode } from '../lib/regions'
 import {
   ENAMEL_TYPES,
@@ -14,6 +20,20 @@ import {
   type PlatingId,
   type ProductId,
 } from '../types'
+
+const OUTLINE_MODES: { id: OutlineMode; label: string; description: string }[] = [
+  {
+    id: 'color',
+    label: 'Stroke color',
+    description:
+      "Reads the outline color off the design's border, then finds every stroke in that color — including the ones inside the artwork",
+  },
+  {
+    id: 'darkness',
+    label: 'Darkness',
+    description: 'Treats any pixel darker than the threshold as an outline',
+  },
+]
 
 const COLOR_MODES: { id: ColorSamplingMode; label: string; description: string }[] = [
   {
@@ -107,6 +127,14 @@ interface ControlPanelProps {
   onMetalReflectivityChange: (value: number) => void
   enamelReflectivity: number
   onEnamelReflectivityChange: (value: number) => void
+  outlineMode: OutlineMode
+  onOutlineModeChange: (mode: OutlineMode) => void
+  outlineTolerance: number
+  onOutlineToleranceChange: (value: number) => void
+  /** What detection actually ran — may differ from `outlineMode` when the design has no
+   * consistent stroke color to read. */
+  outlineSource: OutlineSource | null
+  outlineColor: [number, number, number] | null
   lineThreshold: number
   onLineThresholdChange: (value: number) => void
   colorMode: ColorSamplingMode
@@ -131,6 +159,12 @@ export function ControlPanel({
   onMetalReflectivityChange,
   enamelReflectivity,
   onEnamelReflectivityChange,
+  outlineMode,
+  onOutlineModeChange,
+  outlineTolerance,
+  onOutlineToleranceChange,
+  outlineSource,
+  outlineColor,
   lineThreshold,
   onLineThresholdChange,
   colorMode,
@@ -204,8 +238,90 @@ export function ControlPanel({
       </div>
 
       <div>
-        <label className="text-sm font-medium text-white/70 mb-2 block">Color Sampling</label>
+        <label className="text-sm font-medium text-white/70 mb-2 block">Outline Detection</label>
         <div className="grid grid-cols-2 gap-2 mb-3">
+          {OUTLINE_MODES.map((mode) => (
+            <button
+              key={mode.id}
+              onClick={() => onOutlineModeChange(mode.id)}
+              title={mode.description}
+              className={`rounded-md border px-3 py-2 text-sm transition-colors ${
+                outlineMode === mode.id
+                  ? 'border-blue-400 bg-blue-400/10 text-white'
+                  : 'border-white/10 text-white/70 hover:border-white/25'
+              }`}
+            >
+              {mode.label}
+            </button>
+          ))}
+        </div>
+
+        {outlineMode === 'color' && (
+          <>
+            <label className="text-xs text-white/50 mb-1 flex items-center justify-between">
+              <span>Tolerance</span>
+              <span className="text-white/40">{Math.round(outlineTolerance)}</span>
+            </label>
+            <input
+              type="range"
+              min={MIN_OUTLINE_TOLERANCE}
+              max={MAX_OUTLINE_TOLERANCE}
+              step={1}
+              value={outlineTolerance}
+              onChange={(e) => onOutlineToleranceChange(Number(e.target.value))}
+              className="w-full accent-blue-400"
+            />
+            <p className="mt-1 mb-2 text-xs text-white/30">
+              How close a pixel must be to the outline color to count as a stroke. Raise it if
+              parts of the outline are being filled with enamel; lower it if a design color is
+              turning into plating.
+            </p>
+            {outlineColor && outlineSource === 'color' && (
+              <p className="flex items-center gap-2 text-xs text-white/40">
+                <span
+                  className="h-3.5 w-3.5 shrink-0 rounded-full border border-white/20"
+                  style={{ backgroundColor: `rgb(${outlineColor.join(',')})` }}
+                />
+                Outline color found on your design
+              </p>
+            )}
+            {outlineSource === 'darkness' && (
+              <p className="text-xs text-amber-300/70">
+                No single outline color runs around this design, so darkness is being used
+                instead.
+              </p>
+            )}
+          </>
+        )}
+
+        {/* Also shown when color detection fell back to darkness, since the threshold is then
+            what's actually in effect. */}
+        {(outlineMode === 'darkness' || outlineSource === 'darkness') && (
+          <>
+            <label className="mt-3 text-xs text-white/50 mb-1 flex items-center justify-between">
+              <span>Darkness Threshold</span>
+              <span className="text-white/40">{Math.round(lineThreshold)}</span>
+            </label>
+            <input
+              type="range"
+              min={MIN_LINE_THRESHOLD}
+              max={MAX_LINE_THRESHOLD}
+              step={1}
+              value={lineThreshold}
+              onChange={(e) => onLineThresholdChange(Number(e.target.value))}
+              className="w-full accent-blue-400"
+            />
+            <p className="mt-1 text-xs text-white/30">
+              How dark a pixel must be to count as an outline rather than a design color. Lower
+              this if a dark fill color is being replaced by the plating.
+            </p>
+          </>
+        )}
+      </div>
+
+      <div>
+        <label className="text-sm font-medium text-white/70 mb-2 block">Color Sampling</label>
+        <div className="grid grid-cols-2 gap-2">
           {COLOR_MODES.map((mode) => (
             <button
               key={mode.id}
@@ -221,24 +337,6 @@ export function ControlPanel({
             </button>
           ))}
         </div>
-
-        <label className="text-xs text-white/50 mb-1 flex items-center justify-between">
-          <span>Outline Detection</span>
-          <span className="text-white/40">{Math.round(lineThreshold)}</span>
-        </label>
-        <input
-          type="range"
-          min={MIN_LINE_THRESHOLD}
-          max={MAX_LINE_THRESHOLD}
-          step={1}
-          value={lineThreshold}
-          onChange={(e) => onLineThresholdChange(Number(e.target.value))}
-          className="w-full accent-blue-400"
-        />
-        <p className="mt-1 text-xs text-white/30">
-          How dark a pixel must be to count as an outline rather than a design color. Lower this
-          if a dark fill color is being replaced by the plating.
-        </p>
       </div>
 
       <div>

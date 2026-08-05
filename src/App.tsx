@@ -11,8 +11,10 @@ import { usePinPlacements } from './hooks/usePinPlacements'
 import {
   DEFAULT_COLOR_MODE,
   DEFAULT_LINE_THRESHOLD,
+  DEFAULT_OUTLINE_MODE,
   useTracedDesign,
 } from './hooks/useTracedDesign'
+import { DEFAULT_OUTLINE_TOLERANCE, type OutlineMode } from './lib/outline'
 import type { ColorSamplingMode } from './lib/regions'
 import {
   PLATINGS,
@@ -33,8 +35,10 @@ function App() {
   const [productId, setProductId] = useState<ProductId>('none')
   const [lineThreshold, setLineThreshold] = useState(DEFAULT_LINE_THRESHOLD)
   const [colorMode, setColorMode] = useState<ColorSamplingMode>(DEFAULT_COLOR_MODE)
+  const [outlineMode, setOutlineMode] = useState<OutlineMode>(DEFAULT_OUTLINE_MODE)
+  const [outlineTolerance, setOutlineTolerance] = useState(DEFAULT_OUTLINE_TOLERANCE)
 
-  const design = useTracedDesign(file, lineThreshold, colorMode)
+  const design = useTracedDesign(file, outlineMode, outlineTolerance, lineThreshold, colorMode)
   const platingColor = PLATINGS.find((p) => p.id === platingId)!.color
   const product = PRODUCTS.find((p) => p.id === productId)!
 
@@ -65,6 +69,12 @@ function App() {
         onMetalReflectivityChange={setMetalReflectivity}
         enamelReflectivity={enamelReflectivity}
         onEnamelReflectivityChange={setEnamelReflectivity}
+        outlineMode={outlineMode}
+        onOutlineModeChange={setOutlineMode}
+        outlineTolerance={outlineTolerance}
+        onOutlineToleranceChange={setOutlineTolerance}
+        outlineSource={design?.outlineSource ?? null}
+        outlineColor={design?.outlineColor ?? null}
         lineThreshold={lineThreshold}
         onLineThresholdChange={setLineThreshold}
         colorMode={colorMode}
@@ -87,6 +97,8 @@ function App() {
           outline={design?.outline ?? null}
           uv={design?.uv ?? null}
           regions={design?.regions ?? null}
+          cells={design?.cells ?? null}
+          islands={design?.islands ?? null}
           product={product}
           placement={placement}
           baseUrl={import.meta.env.BASE_URL}

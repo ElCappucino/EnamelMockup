@@ -10,7 +10,16 @@ import {
   type Pt,
   type UVTransform,
 } from '../lib/contour'
-import { extractRegions, type ColorSamplingMode } from '../lib/regions'
+import { extractLineIslands, extractRegions, type ColorSamplingMode } from '../lib/regions'
+import {
+  buildColorLineMask,
+  sampleOutlineColor,
+  MAX_LINE_COVERAGE,
+  MIN_PERIMETER_PURITY,
+  DEFAULT_OUTLINE_TOLERANCE,
+  type OutlineMode,
+  type OutlineSource,
+} from '../lib/outline'
 
 const TEXTURE_SIZE = 1024
 const ANALYSIS_SIZE = 480
@@ -19,6 +28,7 @@ export const MIN_LINE_THRESHOLD = 0
 export const MAX_LINE_THRESHOLD = 160
 export const DEFAULT_LINE_THRESHOLD = 70
 export const DEFAULT_COLOR_MODE: ColorSamplingMode = 'dominant'
+export const DEFAULT_OUTLINE_MODE: OutlineMode = 'color'
 const SIMPLIFY_EPSILON = 1.5
 // The silhouette is the pin's most visible edge, so it gets a tighter tolerance than the interior
 // colour cells. At 1.5 it collapsed to ~48 points and RDP turned gentle curvature — and any dent
@@ -27,6 +37,10 @@ const OUTLINE_SIMPLIFY_EPSILON = 0.6
 const MIN_BOUNDARY_POINTS = 8
 const MIN_POLYGON_POINTS = 3
 const MIN_REGION_PIXELS = 60
+// Lower than the region floor: an interior detail stroke is legitimately small (the dots on the
+// sample design measure ~160px, but a finer design's could be half that) and dropping one leaves
+// a visible gap in the artwork rather than an unfilled cell.
+const MIN_ISLAND_PIXELS = 40
 // Below this fraction of line-art pixels, treat the design as "no real outline" (e.g. a
 // plain photo/gradient) and fall back to the single textured face instead of segmenting.
 const MIN_LINE_COVERAGE_RATIO = 0.015
@@ -42,6 +56,17 @@ export interface TracedDesign {
   outline: Vector2[] | null
   uv: UVTransform | null
   regions: RegionPiece[] | null
+  /** The stroke-bounded wells the regions sit in. The plate's cavities are cut from these, so
+   * plating shows only where the artwork actually has a stroke, and each is filled with its own
+   * base coat under the regions. */
+  cells: RegionPiece[] | null
+  /** Strokes running entirely inside the design — rendered as plating, like the outer border. */
+  islands: Vector2[][] | null
+  /** Which detection method produced `lineMask`, so the UI can say when the requested one
+   * didn't apply. */
+  outlineSource: OutlineSource
+  /** The stroke color read off the design, when detection was by color. */
+  outlineColor: [number, number, number] | null
 }
 
 function drawContain(ctx: CanvasRenderingContext2D, img: HTMLImageElement, size: number) {
@@ -52,11 +77,10 @@ function drawContain(ctx: CanvasRenderingContext2D, img: HTMLImageElement, size:
   ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h)
 }
 
-function buildAlphaMask(ctx: CanvasRenderingContext2D, size: number): Uint8Array {
-  const data = ctx.getImageData(0, 0, size, size).data
+function buildAlphaMask(imageData: ImageData, size: number): Uint8Array {
   const mask = new Uint8Array(size * size)
   for (let i = 0; i < size * size; i++) {
-    mask[i] = data[i * 4 + 3] > ALPHA_THRESHOLD ? 1 : 0
+    mask[i] = imageData.data[i * 4 + 3] > ALPHA_THRESHOLD ? 1 : 0
   }
   return mask
 }
@@ -65,19 +89,28 @@ function buildAlphaMask(ctx: CanvasRenderingContext2D, size: number): Uint8Array
  * intentional design color darker than `threshold` gets caught by this too — its pixels are
  * excluded from region extraction and, on the fallback texture path, overwritten with the
  * plating color outright — which is the other likely way a color can come out altered. */
-function buildLineMask(ctx: CanvasRenderingContext2D, size: number, threshold: number): Uint8Array {
-  const data = ctx.getImageData(0, 0, size, size).data
+function buildLuminanceLineMask(imageData: ImageData, size: number, threshold: number): Uint8Array {
   const mask = new Uint8Array(size * size)
   for (let i = 0; i < size * size; i++) {
-    const a = data[i * 4 + 3]
+    const a = imageData.data[i * 4 + 3]
     if (a <= ALPHA_THRESHOLD) continue
-    const r = data[i * 4]
-    const g = data[i * 4 + 1]
-    const b = data[i * 4 + 2]
+    const r = imageData.data[i * 4]
+    const g = imageData.data[i * 4 + 1]
+    const b = imageData.data[i * 4 + 2]
     const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
     mask[i] = luminance < threshold ? 1 : 0
   }
   return mask
+}
+
+function lineCoverage(lineMask: Uint8Array, alphaMask: Uint8Array): number {
+  let lineCount = 0
+  let foregroundCount = 0
+  for (let i = 0; i < lineMask.length; i++) {
+    if (alphaMask[i] === 1) foregroundCount++
+    if (lineMask[i] === 1) lineCount++
+  }
+  return foregroundCount > 0 ? lineCount / foregroundCount : 0
 }
 
 function traceSimplePolygon(mask: Uint8Array, size: number, epsilon: number): Pt[] | null {
@@ -99,6 +132,8 @@ function rgbToHex([r, g, b]: [number, number, number]): string {
 
 export function useTracedDesign(
   file: File | null,
+  outlineMode: OutlineMode = DEFAULT_OUTLINE_MODE,
+  outlineTolerance: number = DEFAULT_OUTLINE_TOLERANCE,
   lineThreshold: number = DEFAULT_LINE_THRESHOLD,
   colorMode: ColorSamplingMode = DEFAULT_COLOR_MODE,
 ) {
@@ -117,35 +152,69 @@ export function useTracedDesign(
     img.onload = () => {
       if (cancelled) return
 
-      const sourceCanvas = document.createElement('canvas')
-      sourceCanvas.width = TEXTURE_SIZE
-      sourceCanvas.height = TEXTURE_SIZE
-      const sourceCtx = sourceCanvas.getContext('2d')!
-      drawContain(sourceCtx, img, TEXTURE_SIZE)
-      const lineMask = buildLineMask(sourceCtx, TEXTURE_SIZE, lineThreshold)
-
       const analysisCanvas = document.createElement('canvas')
       analysisCanvas.width = ANALYSIS_SIZE
       analysisCanvas.height = ANALYSIS_SIZE
       const analysisCtx = analysisCanvas.getContext('2d')!
       drawContain(analysisCtx, img, ANALYSIS_SIZE)
+      const analysisData = analysisCtx.getImageData(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE)
+      const alphaMask = buildAlphaMask(analysisData, ANALYSIS_SIZE)
 
-      const alphaMask = buildAlphaMask(analysisCtx, ANALYSIS_SIZE)
-      const lineMaskAnalysis = buildLineMask(analysisCtx, ANALYSIS_SIZE, lineThreshold)
+      // Decide how to detect outlines once, on the analysis image, then apply the same decision
+      // to the full-resolution texture mask — the criterion is resolution-independent either way.
+      let outlineColor: [number, number, number] | null = null
+      let outlineSource: OutlineSource = 'darkness'
+      let lineMaskAnalysis: Uint8Array | null = null
+
+      if (outlineMode === 'color') {
+        const sampled = sampleOutlineColor(analysisData, alphaMask, ANALYSIS_SIZE)
+        if (sampled && sampled.purity >= MIN_PERIMETER_PURITY) {
+          const candidate = buildColorLineMask(
+            analysisData,
+            ANALYSIS_SIZE,
+            sampled.color,
+            outlineTolerance,
+            ALPHA_THRESHOLD,
+          )
+          // A design with no strokes at all still has a perfectly uniform perimeter — it's just
+          // the fill color, which then matches nearly the whole design. Rejecting on coverage
+          // catches that case, which purity alone can't.
+          const coverage = lineCoverage(candidate, alphaMask)
+          if (coverage <= MAX_LINE_COVERAGE && coverage >= MIN_LINE_COVERAGE_RATIO) {
+            lineMaskAnalysis = candidate
+            outlineColor = sampled.color
+            outlineSource = 'color'
+          }
+        }
+      }
+
+      if (!lineMaskAnalysis) {
+        lineMaskAnalysis = buildLuminanceLineMask(analysisData, ANALYSIS_SIZE, lineThreshold)
+      }
+
+      const sourceCanvas = document.createElement('canvas')
+      sourceCanvas.width = TEXTURE_SIZE
+      sourceCanvas.height = TEXTURE_SIZE
+      const sourceCtx = sourceCanvas.getContext('2d')!
+      drawContain(sourceCtx, img, TEXTURE_SIZE)
+      const sourceData = sourceCtx.getImageData(0, 0, TEXTURE_SIZE, TEXTURE_SIZE)
+      const lineMask =
+        outlineSource === 'color' && outlineColor
+          ? buildColorLineMask(sourceData, TEXTURE_SIZE, outlineColor, outlineTolerance, ALPHA_THRESHOLD)
+          : buildLuminanceLineMask(sourceData, TEXTURE_SIZE, lineThreshold)
+
       const fillMask = new Uint8Array(ANALYSIS_SIZE * ANALYSIS_SIZE)
-      let foregroundCount = 0
-      let lineCount = 0
       for (let i = 0; i < fillMask.length; i++) {
-        if (alphaMask[i] === 1) foregroundCount++
-        if (lineMaskAnalysis[i] === 1) lineCount++
         fillMask[i] = alphaMask[i] === 1 && lineMaskAnalysis[i] === 0 ? 1 : 0
       }
       const hasMeaningfulLineArt =
-        foregroundCount > 0 && lineCount / foregroundCount >= MIN_LINE_COVERAGE_RATIO
+        lineCoverage(lineMaskAnalysis, alphaMask) >= MIN_LINE_COVERAGE_RATIO
 
       let outline: Vector2[] | null = null
       let uv: UVTransform | null = null
       let regions: RegionPiece[] | null = null
+      let cells: RegionPiece[] | null = null
+      let islands: Vector2[][] | null = null
 
       try {
         const silhouette = traceSimplePolygon(alphaMask, ANALYSIS_SIZE, OUTLINE_SIMPLIFY_EPSILON)
@@ -155,17 +224,16 @@ export function useTracedDesign(
           uv = transform
 
           if (hasMeaningfulLineArt) {
-            const imageData = analysisCtx.getImageData(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE)
             const extracted = extractRegions(
               fillMask,
-              imageData,
+              analysisData,
               ANALYSIS_SIZE,
               ANALYSIS_SIZE,
               MIN_REGION_PIXELS,
               SIMPLIFY_EPSILON,
               colorMode,
             )
-            if (extracted.length > 0) {
+            if (extracted.regions.length > 0) {
               // A region traced from the fill mask can stray a pixel or two outside the outline
               // (the two are traced independently, and simplifying the outline chords slightly
               // inside the true silhouette). A hole that pokes outside its containing shape is
@@ -173,13 +241,32 @@ export function useTracedDesign(
               // region would leave that area as bare metal, so repair the stray points instead
               // by pulling them just inside the outline.
               const center = { x: transform.cx, y: transform.cy }
-              regions = extracted.map((r) => ({
-                points: applyTransform(
-                  r.polygon.map((p) => clampInsidePolygon(p, silhouette, center)),
+              const toShapeSpace = (polygon: Pt[]) =>
+                applyTransform(
+                  polygon.map((p) => clampInsidePolygon(p, silhouette, center)),
                   transform,
-                ).map((p) => new Vector2(p.x, p.y)),
+                ).map((p) => new Vector2(p.x, p.y))
+
+              const toPiece = (r: { polygon: Pt[]; color: [number, number, number] }) => ({
+                points: toShapeSpace(r.polygon),
                 color: rgbToHex(r.color),
-              }))
+              })
+              regions = extracted.regions.map(toPiece)
+              cells = extracted.cells.map(toPiece)
+
+              // Interior strokes are enclosed by the regions around them, so they need no
+              // clamping — they can't reach the silhouette by definition.
+              const extractedIslands = extractLineIslands(
+                lineMaskAnalysis,
+                alphaMask,
+                ANALYSIS_SIZE,
+                ANALYSIS_SIZE,
+                MIN_ISLAND_PIXELS,
+                SIMPLIFY_EPSILON,
+              )
+              islands = extractedIslands.map((piece) =>
+                applyTransform(piece.polygon, transform).map((p) => new Vector2(p.x, p.y)),
+              )
             }
           }
         }
@@ -187,9 +274,21 @@ export function useTracedDesign(
         outline = null
         uv = null
         regions = null
+        cells = null
+        islands = null
       }
 
-      setDesign({ sourceCanvas, lineMask, outline, uv, regions })
+      setDesign({
+        sourceCanvas,
+        lineMask,
+        outline,
+        uv,
+        regions,
+        cells,
+        islands,
+        outlineSource,
+        outlineColor,
+      })
     }
 
     img.src = url
@@ -198,7 +297,7 @@ export function useTracedDesign(
       cancelled = true
       URL.revokeObjectURL(url)
     }
-  }, [file, lineThreshold, colorMode])
+  }, [file, outlineMode, outlineTolerance, lineThreshold, colorMode])
 
   return design
 }

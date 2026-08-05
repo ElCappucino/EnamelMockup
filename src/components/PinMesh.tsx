@@ -20,6 +20,12 @@ interface PinMeshProps {
   outline: Vector2[] | null
   uv: UVTransform | null
   regions: RegionPiece[] | null
+  /** The stroke-bounded wells the regions sit in — one plate cavity each, base-coated in the
+   * well's own dominant color. */
+  cells: RegionPiece[] | null
+  /** Strokes enclosed by the fill regions. They're part of the same metal plate, but can't be
+   * expressed as holes in it — a hole would be enamel. They're extruded alongside it instead. */
+  islands: Vector2[][] | null
   /** Hidden when the pin sits on a product — the post would otherwise pierce thin fabric geometry
    * and show through the back. */
   showPost?: boolean
@@ -44,8 +50,18 @@ const FLUSH_EPS = 0.0015
 // The enamel piece and the plate's cavity are cut from the same polygon, so without this the
 // enamel's outer wall would be exactly coplanar with the cavity wall — the depth buffer can't
 // order coplanar faces, which is what made the raised sides flicker and read as transparent.
-// Shrinking the enamel a hair sits it cleanly inside the cavity and leaves a thin metal rim.
+//
+// The clearance is taken out of the cavity rather than the enamel: shrinking each enamel piece
+// instead left a gap between any two that sat side by side in one well, and the plating behind
+// showed through it as a hairline crack across what should be an unbroken color transition.
+// Widening the cavity keeps neighbouring pieces flush and takes the slack out of the stroke,
+// which has material to spare.
 const FILL_WALL_GAP = 0.004
+
+// Separation between a well's base coat and the color areas drawn over it. Just enough for the
+// depth buffer to order the two reliably, and far less than the shallowest recess (0.002), so
+// the top layer never breaches the plate's front face.
+const FILL_LAYER_GAP = 0.0004
 
 export const MIN_RAISED_HEIGHT = 0.002
 // Not a hard physical limit — a practical ceiling so the raised wall doesn't grow taller than
@@ -131,13 +147,13 @@ function buildShape(points: Pt2[] | null, scale: number): Shape {
   return shape
 }
 
-/** The plate shape with a hole cut out for every fill region, so recessed/flush fill shows through. */
-function buildPlateShape(outline: Pt2[] | null, regions: RegionPiece[], scale: number): Shape {
+/** The plate shape with a cavity cut out for every well, so recessed/flush fill shows through. */
+function buildPlateShape(outline: Pt2[] | null, cells: RegionPiece[], scale: number): Shape {
   const shape = buildShape(outline, scale)
-  for (const region of regions) {
-    if (region.points.length >= 3) {
-      shape.holes.push(pathFromPoints(region.points, scale))
-    }
+  for (const cell of cells) {
+    if (cell.points.length < 3) continue
+    // Outward offset: the cavity has to clear the enamel that fills it (see FILL_WALL_GAP).
+    shape.holes.push(pathFromPoints(insetPolygon(cell.points, -FILL_WALL_GAP), scale))
   }
   return shape
 }
@@ -158,7 +174,7 @@ function buildRingShape(outline: Pt2[] | null, innerScale: number): Shape {
 
 /** Extrudes a flat (uncentered) piece from local z=0..depth, so its front face lands at frontZ. */
 function buildFlatGeometry(
-  shape: Shape,
+  shape: Shape | Shape[],
   depth: number,
   frontZ: number,
   curveSegments: number,
@@ -185,10 +201,15 @@ export function PinMesh({
   outline,
   uv,
   regions,
+  cells,
+  islands,
   showPost = true,
 }: PinMeshProps) {
   const curveSegments = outline ? 1 : 64
-  const hasRegions = !!regions && regions.length > 0
+  // Both halves are required: the cells cut the plate's cavities and the regions fill them, so
+  // either one missing would render a solid plate over the artwork or cavities with nothing in
+  // them. Falling back to the textured face is the honest result in that case.
+  const hasRegions = !!regions && regions.length > 0 && !!cells && cells.length > 0
   const roughness = metalRoughness(metalReflectivity)
   const enamel = enamelMaterialParams(enamelReflectivity)
 
@@ -222,10 +243,21 @@ export function PinMesh({
   // Segmented mode: a shallow metal plate (just deep enough for the recess) plus one piece per
   // color region, backed by a solid hole-free filler that connects the plate to the ring/backing.
   const plateGeometry = useMemo(() => {
-    if (!hasRegions || !regions) return null
-    const shape = buildPlateShape(outline, regions, FACE_INSET)
-    return buildFlatGeometry(shape, PLATE_THICKNESS, PLATE_FRONT_Z, curveSegments)
-  }, [hasRegions, regions, outline, curveSegments])
+    if (!hasRegions || !cells) return null
+    const shape = buildPlateShape(outline, cells, FACE_INSET)
+    // Islands sit inside the plate's own holes, so they extrude as sibling contours of the same
+    // slab rather than as part of its outline — same material, same depth, one geometry.
+    const islandShapes = (islands ?? [])
+      .filter((points) => points.length >= 3)
+      .map((points) => tracePath(new Shape(), ensureWinding(points, true), FACE_INSET))
+
+    return buildFlatGeometry(
+      [shape, ...islandShapes],
+      PLATE_THICKNESS,
+      PLATE_FRONT_Z,
+      curveSegments,
+    )
+  }, [hasRegions, cells, islands, outline, curveSegments])
 
   const fillerGeometry = useMemo(() => {
     if (!hasRegions) return null
@@ -236,15 +268,20 @@ export function PinMesh({
   const fillFrontZ =
     enamelType === 'soft' ? PLATE_FRONT_Z - raisedHeight : PLATE_FRONT_Z - FLUSH_EPS
 
+  // Two layers, both at the traced boundary with no shrink, so pieces sharing an edge inside a
+  // well stay flush: the well's base coat, then its color areas a hair in front of it. Anywhere
+  // the color areas don't quite meet, the base coat shows rather than the plate.
   const fillPieces = useMemo(() => {
-    if (!hasRegions || !regions) return []
-    return regions.map((region) => {
-      const inset = insetPolygon(region.points, FILL_WALL_GAP)
-      const shape = buildShape(inset, FACE_INSET)
-      const geometry = buildFlatGeometry(shape, FILL_THICKNESS, fillFrontZ, 1)
-      return { geometry, color: region.color }
+    if (!hasRegions) return []
+    const build = (piece: RegionPiece, frontZ: number) => ({
+      geometry: buildFlatGeometry(buildShape(piece.points, FACE_INSET), FILL_THICKNESS, frontZ, 1),
+      color: piece.color,
     })
-  }, [hasRegions, regions, fillFrontZ])
+    return [
+      ...(cells ?? []).map((cell) => build(cell, fillFrontZ)),
+      ...(regions ?? []).map((region) => build(region, fillFrontZ + FILL_LAYER_GAP)),
+    ]
+  }, [hasRegions, cells, regions, fillFrontZ])
 
   return (
     <group>
