@@ -10,12 +10,15 @@ import {
   type Pt,
   type UVTransform,
 } from '../lib/contour'
-import { extractRegions } from '../lib/regions'
+import { extractRegions, type ColorSamplingMode } from '../lib/regions'
 
 const TEXTURE_SIZE = 1024
 const ANALYSIS_SIZE = 480
 const ALPHA_THRESHOLD = 40
-const LINE_LUMINANCE_THRESHOLD = 70
+export const MIN_LINE_THRESHOLD = 0
+export const MAX_LINE_THRESHOLD = 160
+export const DEFAULT_LINE_THRESHOLD = 70
+export const DEFAULT_COLOR_MODE: ColorSamplingMode = 'dominant'
 const SIMPLIFY_EPSILON = 1.5
 // The silhouette is the pin's most visible edge, so it gets a tighter tolerance than the interior
 // colour cells. At 1.5 it collapsed to ~48 points and RDP turned gentle curvature — and any dent
@@ -58,8 +61,11 @@ function buildAlphaMask(ctx: CanvasRenderingContext2D, size: number): Uint8Array
   return mask
 }
 
-/** Marks dark, opaque pixels as line-art (the strokes separating enamel color fields). */
-function buildLineMask(ctx: CanvasRenderingContext2D, size: number): Uint8Array {
+/** Marks dark, opaque pixels as line-art (the strokes separating enamel color fields). Any
+ * intentional design color darker than `threshold` gets caught by this too — its pixels are
+ * excluded from region extraction and, on the fallback texture path, overwritten with the
+ * plating color outright — which is the other likely way a color can come out altered. */
+function buildLineMask(ctx: CanvasRenderingContext2D, size: number, threshold: number): Uint8Array {
   const data = ctx.getImageData(0, 0, size, size).data
   const mask = new Uint8Array(size * size)
   for (let i = 0; i < size * size; i++) {
@@ -69,7 +75,7 @@ function buildLineMask(ctx: CanvasRenderingContext2D, size: number): Uint8Array 
     const g = data[i * 4 + 1]
     const b = data[i * 4 + 2]
     const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
-    mask[i] = luminance < LINE_LUMINANCE_THRESHOLD ? 1 : 0
+    mask[i] = luminance < threshold ? 1 : 0
   }
   return mask
 }
@@ -91,7 +97,11 @@ function rgbToHex([r, g, b]: [number, number, number]): string {
   return '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')
 }
 
-export function useTracedDesign(file: File | null) {
+export function useTracedDesign(
+  file: File | null,
+  lineThreshold: number = DEFAULT_LINE_THRESHOLD,
+  colorMode: ColorSamplingMode = DEFAULT_COLOR_MODE,
+) {
   const [design, setDesign] = useState<TracedDesign | null>(null)
 
   useEffect(() => {
@@ -112,7 +122,7 @@ export function useTracedDesign(file: File | null) {
       sourceCanvas.height = TEXTURE_SIZE
       const sourceCtx = sourceCanvas.getContext('2d')!
       drawContain(sourceCtx, img, TEXTURE_SIZE)
-      const lineMask = buildLineMask(sourceCtx, TEXTURE_SIZE)
+      const lineMask = buildLineMask(sourceCtx, TEXTURE_SIZE, lineThreshold)
 
       const analysisCanvas = document.createElement('canvas')
       analysisCanvas.width = ANALYSIS_SIZE
@@ -121,7 +131,7 @@ export function useTracedDesign(file: File | null) {
       drawContain(analysisCtx, img, ANALYSIS_SIZE)
 
       const alphaMask = buildAlphaMask(analysisCtx, ANALYSIS_SIZE)
-      const lineMaskAnalysis = buildLineMask(analysisCtx, ANALYSIS_SIZE)
+      const lineMaskAnalysis = buildLineMask(analysisCtx, ANALYSIS_SIZE, lineThreshold)
       const fillMask = new Uint8Array(ANALYSIS_SIZE * ANALYSIS_SIZE)
       let foregroundCount = 0
       let lineCount = 0
@@ -153,6 +163,7 @@ export function useTracedDesign(file: File | null) {
               ANALYSIS_SIZE,
               MIN_REGION_PIXELS,
               SIMPLIFY_EPSILON,
+              colorMode,
             )
             if (extracted.length > 0) {
               // A region traced from the fill mask can stray a pixel or two outside the outline
@@ -187,7 +198,7 @@ export function useTracedDesign(file: File | null) {
       cancelled = true
       URL.revokeObjectURL(url)
     }
-  }, [file])
+  }, [file, lineThreshold, colorMode])
 
   return design
 }

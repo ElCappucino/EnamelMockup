@@ -1,5 +1,7 @@
 import { useRef, useState } from 'react'
 import { MIN_RAISED_HEIGHT, MAX_RAISED_HEIGHT } from './PinMesh'
+import { MIN_LINE_THRESHOLD, MAX_LINE_THRESHOLD } from '../hooks/useTracedDesign'
+import type { ColorSamplingMode } from '../lib/regions'
 import {
   ENAMEL_TYPES,
   MAX_PIN_DIAMETER_MM,
@@ -12,6 +14,19 @@ import {
   type PlatingId,
   type ProductId,
 } from '../types'
+
+const COLOR_MODES: { id: ColorSamplingMode; label: string; description: string }[] = [
+  {
+    id: 'dominant',
+    label: 'Dominant',
+    description: 'Most common color in each region — matches your source file',
+  },
+  {
+    id: 'average',
+    label: 'Average',
+    description: 'Blends in anti-aliased edges — can look duller/darker',
+  },
+]
 
 function PlacementSlider({
   label,
@@ -92,6 +107,10 @@ interface ControlPanelProps {
   onMetalReflectivityChange: (value: number) => void
   enamelReflectivity: number
   onEnamelReflectivityChange: (value: number) => void
+  lineThreshold: number
+  onLineThresholdChange: (value: number) => void
+  colorMode: ColorSamplingMode
+  onColorModeChange: (mode: ColorSamplingMode) => void
   productId: ProductId
   onProductChange: (id: ProductId) => void
   placement: PinPlacement
@@ -112,6 +131,10 @@ export function ControlPanel({
   onMetalReflectivityChange,
   enamelReflectivity,
   onEnamelReflectivityChange,
+  lineThreshold,
+  onLineThresholdChange,
+  colorMode,
+  onColorModeChange,
   productId,
   onProductChange,
   placement,
@@ -178,6 +201,44 @@ export function ControlPanel({
             Remove design
           </button>
         )}
+      </div>
+
+      <div>
+        <label className="text-sm font-medium text-white/70 mb-2 block">Color Sampling</label>
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          {COLOR_MODES.map((mode) => (
+            <button
+              key={mode.id}
+              onClick={() => onColorModeChange(mode.id)}
+              title={mode.description}
+              className={`rounded-md border px-3 py-2 text-sm transition-colors ${
+                colorMode === mode.id
+                  ? 'border-blue-400 bg-blue-400/10 text-white'
+                  : 'border-white/10 text-white/70 hover:border-white/25'
+              }`}
+            >
+              {mode.label}
+            </button>
+          ))}
+        </div>
+
+        <label className="text-xs text-white/50 mb-1 flex items-center justify-between">
+          <span>Outline Detection</span>
+          <span className="text-white/40">{Math.round(lineThreshold)}</span>
+        </label>
+        <input
+          type="range"
+          min={MIN_LINE_THRESHOLD}
+          max={MAX_LINE_THRESHOLD}
+          step={1}
+          value={lineThreshold}
+          onChange={(e) => onLineThresholdChange(Number(e.target.value))}
+          className="w-full accent-blue-400"
+        />
+        <p className="mt-1 text-xs text-white/30">
+          How dark a pixel must be to count as an outline rather than a design color. Lower this
+          if a dark fill color is being replaced by the plating.
+        </p>
       </div>
 
       <div>

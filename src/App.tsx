@@ -8,7 +8,12 @@ import {
 } from './components/PinMesh'
 import { useEnamelTextures } from './hooks/useEnamelTextures'
 import { usePinPlacements } from './hooks/usePinPlacements'
-import { useTracedDesign } from './hooks/useTracedDesign'
+import {
+  DEFAULT_COLOR_MODE,
+  DEFAULT_LINE_THRESHOLD,
+  useTracedDesign,
+} from './hooks/useTracedDesign'
+import type { ColorSamplingMode } from './lib/regions'
 import {
   PLATINGS,
   PRODUCTS,
@@ -26,8 +31,10 @@ function App() {
   const [metalReflectivity, setMetalReflectivity] = useState(DEFAULT_METAL_REFLECTIVITY)
   const [enamelReflectivity, setEnamelReflectivity] = useState(DEFAULT_ENAMEL_REFLECTIVITY)
   const [productId, setProductId] = useState<ProductId>('none')
+  const [lineThreshold, setLineThreshold] = useState(DEFAULT_LINE_THRESHOLD)
+  const [colorMode, setColorMode] = useState<ColorSamplingMode>(DEFAULT_COLOR_MODE)
 
-  const design = useTracedDesign(file)
+  const design = useTracedDesign(file, lineThreshold, colorMode)
   const platingColor = PLATINGS.find((p) => p.id === platingId)!.color
   const product = PRODUCTS.find((p) => p.id === productId)!
 
@@ -58,6 +65,10 @@ function App() {
         onMetalReflectivityChange={setMetalReflectivity}
         enamelReflectivity={enamelReflectivity}
         onEnamelReflectivityChange={setEnamelReflectivity}
+        lineThreshold={lineThreshold}
+        onLineThresholdChange={setLineThreshold}
+        colorMode={colorMode}
+        onColorModeChange={setColorMode}
         productId={productId}
         onProductChange={setProductId}
         placement={placement}
