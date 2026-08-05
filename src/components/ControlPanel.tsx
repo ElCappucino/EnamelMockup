@@ -50,6 +50,35 @@ function PlacementSlider({
   )
 }
 
+/** For 0..1 controls displayed as a percentage — reflectivity sliders. */
+function PercentSlider({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: number
+  onChange: (value: number) => void
+}) {
+  return (
+    <>
+      <label className="text-xs text-white/50 mb-1 flex items-center justify-between">
+        <span>{label}</span>
+        <span className="text-white/40">{Math.round(value * 100)}%</span>
+      </label>
+      <input
+        type="range"
+        min={0}
+        max={1}
+        step={0.01}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full accent-blue-400 mb-3"
+      />
+    </>
+  )
+}
+
 interface ControlPanelProps {
   file: File | null
   onFileChange: (file: File | null) => void
@@ -59,6 +88,10 @@ interface ControlPanelProps {
   onEnamelTypeChange: (id: EnamelType) => void
   raisedHeight: number
   onRaisedHeightChange: (value: number) => void
+  metalReflectivity: number
+  onMetalReflectivityChange: (value: number) => void
+  enamelReflectivity: number
+  onEnamelReflectivityChange: (value: number) => void
   productId: ProductId
   onProductChange: (id: ProductId) => void
   placement: PinPlacement
@@ -75,6 +108,10 @@ export function ControlPanel({
   onEnamelTypeChange,
   raisedHeight,
   onRaisedHeightChange,
+  metalReflectivity,
+  onMetalReflectivityChange,
+  enamelReflectivity,
+  onEnamelReflectivityChange,
   productId,
   onProductChange,
   placement,
@@ -208,6 +245,20 @@ export function ControlPanel({
             </button>
           ))}
         </div>
+      </div>
+
+      <div>
+        <label className="text-sm font-medium text-white/70 mb-2 block">Reflection</label>
+        <PercentSlider
+          label="Metal"
+          value={metalReflectivity}
+          onChange={onMetalReflectivityChange}
+        />
+        <PercentSlider
+          label="Enamel"
+          value={enamelReflectivity}
+          onChange={onEnamelReflectivityChange}
+        />
       </div>
 
       <div>

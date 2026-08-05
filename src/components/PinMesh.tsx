@@ -9,6 +9,12 @@ interface PinMeshProps {
   platingColor: string
   enamelType: EnamelType
   raisedHeight: number
+  /** 0 (brushed/matte) to 1 (mirror-polished) for the plating — body, backing, plate, filler
+   * and post all share this, since they're the same physical metal. */
+  metalReflectivity: number
+  /** 0 (satin) to 1 (glossy) for the enamel fill — the segmented color pieces and the fallback
+   * textured face both share this, since they render the same conceptual surface. */
+  enamelReflectivity: number
   colorTexture: CanvasTexture | null
   bumpTexture: CanvasTexture | null
   outline: Vector2[] | null
@@ -46,6 +52,40 @@ export const MIN_RAISED_HEIGHT = 0.002
 // the pin itself looks plausible.
 export const MAX_RAISED_HEIGHT = 0.05
 export const DEFAULT_RAISED_HEIGHT = 0.02
+
+// Metal reflectivity is exposed as a single 0..1 "how mirror-like" knob and mapped onto
+// roughness, the physical parameter that actually controls reflection sharpness. Range picked so
+// 0 still reads as brushed metal (not chalk) and 1 as a genuine mirror finish.
+const METAL_ROUGHNESS_MAX = 0.9
+const METAL_ROUGHNESS_MIN = 0.05
+// Reverse-engineered so the default reproduces the roughness=0.28 this shipped with, so turning
+// the feature on doesn't shift anyone's existing look.
+export const DEFAULT_METAL_REFLECTIVITY = (METAL_ROUGHNESS_MAX - 0.28) / (METAL_ROUGHNESS_MAX - METAL_ROUGHNESS_MIN)
+
+function metalRoughness(reflectivity: number): number {
+  return METAL_ROUGHNESS_MAX - reflectivity * (METAL_ROUGHNESS_MAX - METAL_ROUGHNESS_MIN)
+}
+
+// Enamel reflectivity maps to three meshPhysicalMaterial parameters at once: the clearcoat
+// layer's strength and sharpness, plus the base coat's own roughness underneath it. Range chosen
+// so 0 reads as a satin/soft-touch finish and 1 as a glossy, wet-look coating.
+const ENAMEL_CLEARCOAT_ROUGHNESS_MAX = 0.75
+const ENAMEL_CLEARCOAT_ROUGHNESS_MIN = 0.05
+const ENAMEL_BASE_ROUGHNESS_MAX = 0.7
+const ENAMEL_BASE_ROUGHNESS_MIN = 0.3
+// Reproduces the clearcoat=0.5 / clearcoatRoughness=0.4 / roughness=0.5 this shipped with.
+export const DEFAULT_ENAMEL_REFLECTIVITY = 0.5
+
+function enamelMaterialParams(reflectivity: number) {
+  return {
+    clearcoat: reflectivity,
+    clearcoatRoughness:
+      ENAMEL_CLEARCOAT_ROUGHNESS_MAX -
+      reflectivity * (ENAMEL_CLEARCOAT_ROUGHNESS_MAX - ENAMEL_CLEARCOAT_ROUGHNESS_MIN),
+    roughness:
+      ENAMEL_BASE_ROUGHNESS_MAX - reflectivity * (ENAMEL_BASE_ROUGHNESS_MAX - ENAMEL_BASE_ROUGHNESS_MIN),
+  }
+}
 
 // The plate only needs to be deep enough to hold the deepest possible recess — its per-region
 // holes cut all the way through whatever thickness it has, so making it deeper than necessary
@@ -138,6 +178,8 @@ export function PinMesh({
   platingColor,
   enamelType,
   raisedHeight,
+  metalReflectivity,
+  enamelReflectivity,
   colorTexture,
   bumpTexture,
   outline,
@@ -147,6 +189,8 @@ export function PinMesh({
 }: PinMeshProps) {
   const curveSegments = outline ? 1 : 64
   const hasRegions = !!regions && regions.length > 0
+  const roughness = metalRoughness(metalReflectivity)
+  const enamel = enamelMaterialParams(enamelReflectivity)
 
   const bodyGeometry = useMemo(() => {
     const shape = buildRingShape(outline, FACE_INSET)
@@ -209,7 +253,7 @@ export function PinMesh({
         <meshStandardMaterial
           color={platingColor}
           metalness={1}
-          roughness={0.28}
+          roughness={roughness}
           envMapIntensity={1.25}
         />
       </mesh>
@@ -219,7 +263,7 @@ export function PinMesh({
         <meshStandardMaterial
           color={platingColor}
           metalness={1}
-          roughness={0.28}
+          roughness={roughness}
           envMapIntensity={1.25}
         />
       </mesh>
@@ -230,7 +274,7 @@ export function PinMesh({
             <meshStandardMaterial
               color={platingColor}
               metalness={1}
-              roughness={0.28}
+              roughness={roughness}
               envMapIntensity={1.25}
             />
           </mesh>
@@ -238,7 +282,7 @@ export function PinMesh({
             <meshStandardMaterial
               color={platingColor}
               metalness={1}
-              roughness={0.28}
+              roughness={roughness}
               envMapIntensity={1.25}
             />
           </mesh>
@@ -246,9 +290,9 @@ export function PinMesh({
             <mesh key={i} geometry={piece.geometry} castShadow>
               <meshPhysicalMaterial
                 color={piece.color}
-                roughness={0.5}
-                clearcoat={0.5}
-                clearcoatRoughness={0.4}
+                roughness={enamel.roughness}
+                clearcoat={enamel.clearcoat}
+                clearcoatRoughness={enamel.clearcoatRoughness}
                 metalness={0}
                 envMapIntensity={0.35}
               />
@@ -262,9 +306,9 @@ export function PinMesh({
               map={colorTexture}
               bumpMap={bumpTexture ?? undefined}
               bumpScale={bumpTexture ? 0.015 : 0}
-              roughness={0.5}
-              clearcoat={0.5}
-              clearcoatRoughness={0.4}
+              roughness={enamel.roughness}
+              clearcoat={enamel.clearcoat}
+              clearcoatRoughness={enamel.clearcoatRoughness}
               metalness={0}
               envMapIntensity={0.35}
             />
@@ -281,7 +325,7 @@ export function PinMesh({
           <meshStandardMaterial
             color="#c7c9cc"
             metalness={1}
-            roughness={0.35}
+            roughness={roughness}
             envMapIntensity={1.1}
           />
         </mesh>

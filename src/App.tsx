@@ -1,7 +1,11 @@
 import { useState } from 'react'
 import { ControlPanel } from './components/ControlPanel'
 import { PinCanvas } from './components/PinCanvas'
-import { DEFAULT_RAISED_HEIGHT } from './components/PinMesh'
+import {
+  DEFAULT_ENAMEL_REFLECTIVITY,
+  DEFAULT_METAL_REFLECTIVITY,
+  DEFAULT_RAISED_HEIGHT,
+} from './components/PinMesh'
 import { useEnamelTextures } from './hooks/useEnamelTextures'
 import { usePinPlacements } from './hooks/usePinPlacements'
 import { useTracedDesign } from './hooks/useTracedDesign'
@@ -19,6 +23,8 @@ function App() {
   const [platingId, setPlatingId] = useState<PlatingId>('gold')
   const [enamelType, setEnamelType] = useState<EnamelType>('soft')
   const [raisedHeight, setRaisedHeight] = useState(DEFAULT_RAISED_HEIGHT)
+  const [metalReflectivity, setMetalReflectivity] = useState(DEFAULT_METAL_REFLECTIVITY)
+  const [enamelReflectivity, setEnamelReflectivity] = useState(DEFAULT_ENAMEL_REFLECTIVITY)
   const [productId, setProductId] = useState<ProductId>('none')
 
   const design = useTracedDesign(file)
@@ -48,6 +54,10 @@ function App() {
         onEnamelTypeChange={setEnamelType}
         raisedHeight={raisedHeight}
         onRaisedHeightChange={setRaisedHeight}
+        metalReflectivity={metalReflectivity}
+        onMetalReflectivityChange={setMetalReflectivity}
+        enamelReflectivity={enamelReflectivity}
+        onEnamelReflectivityChange={setEnamelReflectivity}
         productId={productId}
         onProductChange={setProductId}
         placement={placement}
@@ -59,6 +69,8 @@ function App() {
           platingColor={platingColor}
           enamelType={enamelType}
           raisedHeight={raisedHeight}
+          metalReflectivity={metalReflectivity}
+          enamelReflectivity={enamelReflectivity}
           colorTexture={colorTexture}
           bumpTexture={bumpTexture}
           outline={design?.outline ?? null}

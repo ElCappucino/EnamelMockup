@@ -119,6 +119,8 @@ interface PinCanvasProps {
   platingColor: string
   enamelType: EnamelType
   raisedHeight: number
+  metalReflectivity: number
+  enamelReflectivity: number
   colorTexture: CanvasTexture | null
   bumpTexture: CanvasTexture | null
   outline: Vector2[] | null
@@ -133,6 +135,8 @@ export function PinCanvas({
   platingColor,
   enamelType,
   raisedHeight,
+  metalReflectivity,
+  enamelReflectivity,
   colorTexture,
   bumpTexture,
   outline,
@@ -159,6 +163,8 @@ export function PinCanvas({
       platingColor={platingColor}
       enamelType={enamelType}
       raisedHeight={raisedHeight}
+      metalReflectivity={metalReflectivity}
+      enamelReflectivity={enamelReflectivity}
       colorTexture={colorTexture}
       bumpTexture={bumpTexture}
       outline={outline}
