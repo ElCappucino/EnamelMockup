@@ -15,6 +15,7 @@ import {
 } from './hooks/useTracedDesign'
 import { DEFAULT_OUTLINE_TOLERANCE, type OutlineMode } from './lib/outline'
 import {
+  DEFAULT_BACKGROUND_COLOR,
   PLATINGS,
   PRODUCTS,
   type EnamelType,
@@ -35,6 +36,7 @@ function App() {
   const [outlineMode, setOutlineMode] = useState<OutlineMode>(DEFAULT_OUTLINE_MODE)
   const [outlineTolerance, setOutlineTolerance] = useState(DEFAULT_OUTLINE_TOLERANCE)
   const [wireframe, setWireframe] = useState(false)
+  const [backgroundColor, setBackgroundColor] = useState(DEFAULT_BACKGROUND_COLOR)
 
   const design = useTracedDesign(file, outlineMode, outlineTolerance, lineThreshold)
   const platingColor = PLATINGS.find((p) => p.id === platingId)!.color
@@ -67,6 +69,8 @@ function App() {
         onMetalReflectivityChange={setMetalReflectivity}
         enamelReflectivity={enamelReflectivity}
         onEnamelReflectivityChange={setEnamelReflectivity}
+        backgroundColor={backgroundColor}
+        onBackgroundColorChange={setBackgroundColor}
         outlineMode={outlineMode}
         onOutlineModeChange={setOutlineMode}
         outlineTolerance={outlineTolerance}
@@ -101,6 +105,7 @@ function App() {
           placement={placement}
           baseUrl={import.meta.env.BASE_URL}
           wireframe={wireframe}
+          backgroundColor={backgroundColor}
         />
       </main>
     </div>

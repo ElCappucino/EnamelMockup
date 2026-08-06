@@ -13,6 +13,24 @@ export const PLATINGS: Plating[] = [
   { id: 'copper', label: 'Copper', color: '#b87333' },
 ]
 
+export interface BackgroundOption {
+  id: string
+  label: string
+  color: string
+}
+
+/** Quick picks for the viewer backdrop. Any colour at all is reachable through the custom picker;
+ * these are just the ones worth a single click — the dark studio default the pin was lit for, plus
+ * the neutral backdrops a product shot usually wants. */
+export const BACKGROUNDS: BackgroundOption[] = [
+  { id: 'studio', label: 'Studio', color: '#1b1b1f' },
+  { id: 'slate', label: 'Slate', color: '#454b5a' },
+  { id: 'light', label: 'Light', color: '#e8e8ea' },
+  { id: 'white', label: 'White', color: '#ffffff' },
+]
+
+export const DEFAULT_BACKGROUND_COLOR = BACKGROUNDS[0].color
+
 export type EnamelType = 'soft' | 'hard'
 
 export interface EnamelOption {

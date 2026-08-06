@@ -132,6 +132,7 @@ interface PinCanvasProps {
   placement: PinPlacement
   baseUrl: string
   wireframe: boolean
+  backgroundColor: string
 }
 
 export function PinCanvas({
@@ -151,6 +152,7 @@ export function PinCanvas({
   placement,
   baseUrl,
   wireframe,
+  backgroundColor,
 }: PinCanvasProps) {
   const [bounds, setBounds] = useState<ProductBounds | null>(null)
   const showProduct = product.file !== null
@@ -200,7 +202,7 @@ export function PinCanvas({
       camera={CAMERA_PROPS}
       gl={GL_PROPS}
     >
-      <color attach="background" args={['#1b1b1f']} />
+      <color attach="background" args={[backgroundColor]} />
 
       <StudioEnvironment />
 

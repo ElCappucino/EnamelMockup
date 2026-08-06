@@ -8,6 +8,7 @@ import {
   type OutlineSource,
 } from '../lib/outline'
 import {
+  BACKGROUNDS,
   ENAMEL_TYPES,
   MAX_PIN_DIAMETER_MM,
   MIN_PIN_DIAMETER_MM,
@@ -113,6 +114,8 @@ interface ControlPanelProps {
   onMetalReflectivityChange: (value: number) => void
   enamelReflectivity: number
   onEnamelReflectivityChange: (value: number) => void
+  backgroundColor: string
+  onBackgroundColorChange: (color: string) => void
   outlineMode: OutlineMode
   onOutlineModeChange: (mode: OutlineMode) => void
   outlineTolerance: number
@@ -145,6 +148,8 @@ export function ControlPanel({
   onMetalReflectivityChange,
   enamelReflectivity,
   onEnamelReflectivityChange,
+  backgroundColor,
+  onBackgroundColorChange,
   outlineMode,
   onOutlineModeChange,
   outlineTolerance,
@@ -385,6 +390,38 @@ export function ControlPanel({
           value={enamelReflectivity}
           onChange={onEnamelReflectivityChange}
         />
+      </div>
+
+      <div>
+        <label className="text-sm font-medium text-white/70 mb-2 block">Background</label>
+        <div className="grid grid-cols-2 gap-2">
+          {BACKGROUNDS.map((option) => (
+            <button
+              key={option.id}
+              onClick={() => onBackgroundColorChange(option.color)}
+              className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${
+                backgroundColor.toLowerCase() === option.color
+                  ? 'border-blue-400 bg-blue-400/10 text-white'
+                  : 'border-white/10 text-white/70 hover:border-white/25'
+              }`}
+            >
+              <span
+                className="h-3.5 w-3.5 rounded-full border border-white/20"
+                style={{ backgroundColor: option.color }}
+              />
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <label className="mt-2 flex cursor-pointer items-center justify-between rounded-md border border-white/10 px-3 py-2 text-sm text-white/70 transition-colors hover:border-white/25">
+          <span>Custom</span>
+          <input
+            type="color"
+            value={backgroundColor}
+            onChange={(e) => onBackgroundColorChange(e.target.value)}
+            className="h-6 w-10 cursor-pointer rounded border border-white/20 bg-transparent"
+          />
+        </label>
       </div>
 
       <div>
