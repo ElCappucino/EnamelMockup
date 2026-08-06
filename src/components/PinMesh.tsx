@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { ExtrudeGeometry, Path, Shape, Vector2, type CanvasTexture } from 'three'
-import { ensureWinding, insetPolygon, type UVTransform } from '../lib/contour'
+import { ensureWinding, insetPolygon, pointInPolygon, type UVTransform } from '../lib/contour'
 import { makeUVGenerator } from '../lib/uvGenerator'
 import type { RegionPiece } from '../hooks/useTracedDesign'
 import type { EnamelType } from '../types'
@@ -37,6 +37,9 @@ interface PinMeshProps {
 const RADIUS = 1
 const BODY_THICKNESS = 0.1
 const BODY_BEVEL = 0.02
+/** Scale for the face assembly's *interior* — the plate's cavities and the enamel pieces that sit
+ * in them. They only have to stay registered with each other, so a uniform scale is fine here.
+ * The assembly's outer boundary is a different problem; see `faceOutline`. */
 const FACE_INSET = 0.94
 
 const PLATE_FRONT_Z = BODY_THICKNESS / 2 + BODY_BEVEL + 0.015
@@ -123,6 +126,46 @@ const FACE_SOLID_THICKNESS = PLATE_FRONT_Z - RING_BACK_Z + 0.01
 
 type Pt2 = { x: number; y: number }
 
+// Width of the metal border between the pin's silhouette and the face assembly it encloses, in
+// shape-space units — the silhouette spans roughly ±0.92 (see computeTransform's halfExtent), so
+// this reads as a border a little under 5% of the pin's width. Picked to land within a hair of
+// the border the old uniform scale produced on the designs that already looked right.
+const BORDER_WIDTH = 0.045
+// A protrusion narrower than twice the border has no room for one, and the offset folds back on
+// itself there. Retrying narrower is better than shipping a boundary that escapes the outline.
+const MIN_BORDER_WIDTH = 0.008
+
+/** The face assembly's outer boundary: the silhouette pulled inward by a uniform border.
+ *
+ * This used to be a uniform scale of the silhouette about the origin, which is only an inward
+ * offset when the outline is star-shaped. A silhouette with deep concavities — the notches
+ * between a fish's fins, say — has boundary points that a scale drags across the outline and out
+ * the other side. That left the body ring's hole no longer contained by its own outer contour,
+ * and ExtrudeGeometry's triangulator drops an uncontained hole without reporting anything: the
+ * ring came out as a solid disc, and its front face sat in front of the enamel and buried it. The
+ * pin rendered as bare plating for every design whose outline wasn't roughly convex.
+ *
+ * A miter offset follows the outline's actual shape instead. It can still fold back on a
+ * protrusion thinner than twice the border, so the result is checked for containment and retried
+ * narrower until it fits. */
+function faceOutline(outline: Pt2[] | null): Pt2[] | null {
+  if (!outline || outline.length < 3) return outline
+
+  let inset = insetPolygon(outline, BORDER_WIDTH)
+  for (let width = BORDER_WIDTH; width >= MIN_BORDER_WIDTH; width /= 2) {
+    inset = insetPolygon(outline, width)
+    if (inset.every((p) => pointInPolygon(p, outline))) break
+  }
+  return inset
+}
+
+/** Scale to pair with a face-assembly contour. A traced outline has already been offset by
+ * `faceOutline`, so it needs none; the circular fallback has no outline to offset and still
+ * relies on the scale to leave room for the border. */
+function faceScale(face: Pt2[] | null): number {
+  return face ? 1 : FACE_INSET
+}
+
 function tracePath<T extends Path>(path: T, points: Pt2[], scale: number): T {
   path.moveTo(points[0].x * scale, points[0].y * scale)
   for (let i = 1; i < points.length; i++) {
@@ -150,13 +193,15 @@ function buildShape(points: Pt2[] | null, scale: number): Shape {
   return shape
 }
 
-/** The plate shape with a cavity cut out for every well, so recessed/flush fill shows through. */
-function buildPlateShape(outline: Pt2[] | null, cells: RegionPiece[], scale: number): Shape {
-  const shape = buildShape(outline, scale)
+/** The plate shape with a cavity cut out for every well, so recessed/flush fill shows through.
+ * `face` is the assembly's outer boundary from `faceOutline`; the cavities keep the interior's
+ * own scale, which is what registers them with the enamel pieces. */
+function buildPlateShape(face: Pt2[] | null, cells: RegionPiece[], cellScale: number): Shape {
+  const shape = buildShape(face, faceScale(face))
   for (const cell of cells) {
     if (cell.points.length < 3) continue
     // Outward offset: the cavity has to clear the enamel that fills it (see FILL_WALL_GAP).
-    shape.holes.push(pathFromPoints(insetPolygon(cell.points, -FILL_WALL_GAP), scale))
+    shape.holes.push(pathFromPoints(insetPolygon(cell.points, -FILL_WALL_GAP), cellScale))
   }
   return shape
 }
@@ -168,10 +213,12 @@ function buildHolePath(points: Pt2[] | null, scale: number): Path {
   return path
 }
 
-/** The body as a ring: outer boundary minus the plate's footprint, so its front face never occludes it. */
-function buildRingShape(outline: Pt2[] | null, innerScale: number): Shape {
+/** The body as a ring: outer boundary minus the plate's footprint, so its front face never
+ * occludes it. The hole has to be the plate's exact footprint — a mismatch either shows plating
+ * through a gap or puts the ring's face over the enamel. */
+function buildRingShape(outline: Pt2[] | null, face: Pt2[] | null): Shape {
   const shape = buildShape(outline, 1)
-  shape.holes.push(buildHolePath(outline, innerScale))
+  shape.holes.push(buildHolePath(face, faceScale(face)))
   return shape
 }
 
@@ -217,8 +264,12 @@ export function PinMesh({
   const roughness = metalRoughness(metalReflectivity)
   const enamel = enamelMaterialParams(enamelReflectivity)
 
+  // Shared by every piece of the face assembly, so the ring's hole and the plate that fills it
+  // are the same contour rather than two separately-derived ones.
+  const face = useMemo(() => faceOutline(outline), [outline])
+
   const bodyGeometry = useMemo(() => {
-    const shape = buildRingShape(outline, FACE_INSET)
+    const shape = buildRingShape(outline, face)
     const geometry = new ExtrudeGeometry(shape, {
       depth: BODY_THICKNESS,
       bevelEnabled: true,
@@ -229,7 +280,7 @@ export function PinMesh({
     })
     geometry.center()
     return geometry
-  }, [outline, curveSegments])
+  }, [outline, face, curveSegments])
 
   const backingGeometry = useMemo(() => {
     const shape = buildShape(outline, 1)
@@ -239,16 +290,16 @@ export function PinMesh({
   // Fallback (no line-art detected): single textured face, filling the ring's hole solidly.
   // No holes here, so no tunnel risk — safe to make it span the whole depth in one piece.
   const faceGeometry = useMemo(() => {
-    const shape = buildShape(outline, FACE_INSET)
+    const shape = buildShape(face, faceScale(face))
     const uvGenerator = makeUVGenerator(uv)
     return buildFlatGeometry(shape, FACE_SOLID_THICKNESS, PLATE_FRONT_Z, curveSegments, uvGenerator)
-  }, [outline, uv, curveSegments])
+  }, [face, uv, curveSegments])
 
   // Segmented mode: a shallow metal plate (just deep enough for the recess) plus one piece per
   // color region, backed by a solid hole-free filler that connects the plate to the ring/backing.
   const plateGeometry = useMemo(() => {
     if (!hasRegions || !cells) return null
-    const shape = buildPlateShape(outline, cells, FACE_INSET)
+    const shape = buildPlateShape(face, cells, FACE_INSET)
     // Islands sit inside the plate's own holes, so they extrude as sibling contours of the same
     // slab rather than as part of its outline — same material, same depth, one geometry.
     const islandShapes = (islands ?? [])
@@ -261,13 +312,13 @@ export function PinMesh({
       PLATE_FRONT_Z,
       curveSegments,
     )
-  }, [hasRegions, cells, islands, outline, curveSegments])
+  }, [hasRegions, cells, islands, face, curveSegments])
 
   const fillerGeometry = useMemo(() => {
     if (!hasRegions) return null
-    const shape = buildShape(outline, FACE_INSET)
+    const shape = buildShape(face, faceScale(face))
     return buildFlatGeometry(shape, FILLER_THICKNESS, FILLER_FRONT_Z, curveSegments)
-  }, [hasRegions, outline, curveSegments])
+  }, [hasRegions, face, curveSegments])
 
   const fillFrontZ =
     enamelType === 'soft' ? PLATE_FRONT_Z - raisedHeight : PLATE_FRONT_Z - FLUSH_EPS
