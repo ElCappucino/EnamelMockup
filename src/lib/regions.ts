@@ -87,8 +87,6 @@ export interface ExtractedIsland {
   pixelCount: number
 }
 
-export type ColorSamplingMode = 'dominant' | 'average'
-
 const MAX_REGIONS = 60
 const MAX_ISLANDS = 80
 
@@ -107,26 +105,6 @@ const MAX_PALETTE_COLORS = 12
 // turns the whole boundary into a sliver region of its own. Measured on real artwork: design
 // colors run 4-37% of the fill, blend colors 0.1-0.2%.
 const MIN_PALETTE_SHARE = 0.015
-
-/** The average of every pixel in the region — pulled toward whatever else touches its border,
- * since a region traced against dark line-art always has some pixels blended partway toward
- * black along its anti-aliased edge. Measured on real artwork: ~4x further from the source
- * color than the dominant-bucket estimate below. Kept as an option since it's the more correct
- * answer for a region that's a genuine gradient rather than a flat fill with soft edges. */
-function averageColor(imageData: ImageData, labels: Int32Array, label: number): [number, number, number] {
-  let rSum = 0
-  let gSum = 0
-  let bSum = 0
-  let n = 0
-  for (let i = 0; i < labels.length; i++) {
-    if (labels[i] !== label) continue
-    rSum += imageData.data[i * 4]
-    gSum += imageData.data[i * 4 + 1]
-    bSum += imageData.data[i * 4 + 2]
-    n++
-  }
-  return n > 0 ? [Math.round(rSum / n), Math.round(gSum / n), Math.round(bSum / n)] : [0, 0, 0]
-}
 
 /** The average color within whichever quantized color bucket has the most pixels in the region.
  * A flat fill with anti-aliased edges has the vast majority of its pixels in one bucket (the
@@ -344,7 +322,8 @@ function polygonForLabel(
 }
 
 /** Segments a fill mask into enamel wells (`cells`, bounded by the outline strokes) and the flat
- * color areas inside them (`regions`, each with a color sampled per `colorMode`).
+ * color areas inside them (`regions`, each with a color sampled by whichever quantized bucket
+ * dominates the region).
  *
  * The two levels exist because artwork uses strokes and color changes to mean different things.
  * A stroke is a divider the pin should render in metal; a color change with no stroke — shading,
@@ -358,7 +337,6 @@ export function extractRegions(
   height: number,
   minPixels: number,
   simplifyEpsilon: number,
-  colorMode: ColorSamplingMode,
 ): ExtractedFill {
   const empty: ExtractedFill = { cells: [], regions: [] }
   const palette = extractPalette(imageData, fillMask, width * height)
@@ -413,10 +391,7 @@ export function extractRegions(
     const polygon = polygonForLabel(regionLabels.labels, label, width, height, simplifyEpsilon)
     if (!polygon) continue
 
-    const color =
-      colorMode === 'dominant'
-        ? dominantColor(imageData, regionLabels.labels, label)
-        : averageColor(imageData, regionLabels.labels, label)
+    const color = dominantColor(imageData, regionLabels.labels, label)
 
     regions.push({ polygon, color, pixelCount: count })
 
@@ -431,10 +406,7 @@ export function extractRegions(
     if (!cellsWithColor.has(label)) continue
     const polygon = polygonForLabel(cellLabels.labels, label, width, height, simplifyEpsilon)
     if (!polygon) continue
-    const color =
-      colorMode === 'dominant'
-        ? dominantColor(imageData, cellLabels.labels, label)
-        : averageColor(imageData, cellLabels.labels, label)
+    const color = dominantColor(imageData, cellLabels.labels, label)
     cells.push({ polygon, color, pixelCount: count })
   }
 

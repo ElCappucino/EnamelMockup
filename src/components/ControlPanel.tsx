@@ -7,7 +7,6 @@ import {
   type OutlineMode,
   type OutlineSource,
 } from '../lib/outline'
-import type { ColorSamplingMode } from '../lib/regions'
 import {
   ENAMEL_TYPES,
   MAX_PIN_DIAMETER_MM,
@@ -32,19 +31,6 @@ const OUTLINE_MODES: { id: OutlineMode; label: string; description: string }[] =
     id: 'darkness',
     label: 'Darkness',
     description: 'Treats any pixel darker than the threshold as an outline',
-  },
-]
-
-const COLOR_MODES: { id: ColorSamplingMode; label: string; description: string }[] = [
-  {
-    id: 'dominant',
-    label: 'Dominant',
-    description: 'Most common color in each region — matches your source file',
-  },
-  {
-    id: 'average',
-    label: 'Average',
-    description: 'Blends in anti-aliased edges — can look duller/darker',
   },
 ]
 
@@ -137,8 +123,8 @@ interface ControlPanelProps {
   outlineColor: [number, number, number] | null
   lineThreshold: number
   onLineThresholdChange: (value: number) => void
-  colorMode: ColorSamplingMode
-  onColorModeChange: (mode: ColorSamplingMode) => void
+  wireframe: boolean
+  onWireframeChange: (value: boolean) => void
   productId: ProductId
   onProductChange: (id: ProductId) => void
   placement: PinPlacement
@@ -167,8 +153,8 @@ export function ControlPanel({
   outlineColor,
   lineThreshold,
   onLineThresholdChange,
-  colorMode,
-  onColorModeChange,
+  wireframe,
+  onWireframeChange,
   productId,
   onProductChange,
   placement,
@@ -177,6 +163,7 @@ export function ControlPanel({
 }: ControlPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
 
   function handleFiles(files: FileList | null) {
     const picked = files?.[0]
@@ -317,26 +304,6 @@ export function ControlPanel({
             </p>
           </>
         )}
-      </div>
-
-      <div>
-        <label className="text-sm font-medium text-white/70 mb-2 block">Color Sampling</label>
-        <div className="grid grid-cols-2 gap-2">
-          {COLOR_MODES.map((mode) => (
-            <button
-              key={mode.id}
-              onClick={() => onColorModeChange(mode.id)}
-              title={mode.description}
-              className={`rounded-md border px-3 py-2 text-sm transition-colors ${
-                colorMode === mode.id
-                  ? 'border-blue-400 bg-blue-400/10 text-white'
-                  : 'border-white/10 text-white/70 hover:border-white/25'
-              }`}
-            >
-              {mode.label}
-            </button>
-          ))}
-        </div>
       </div>
 
       <div>
@@ -512,9 +479,39 @@ export function ControlPanel({
         </div>
       )}
 
-      <div className="mt-auto text-xs text-white/30">
-        Drag to rotate. Scroll to zoom.
+      <div className="mt-auto border-t border-white/10 pt-4">
+        <button
+          onClick={() => setAdvancedOpen((open) => !open)}
+          className="flex w-full items-center justify-between text-sm font-medium text-white/70 hover:text-white"
+        >
+          Advanced
+          <span
+            className={`text-white/40 transition-transform ${advancedOpen ? 'rotate-180' : ''}`}
+          >
+            ▾
+          </span>
+        </button>
+
+        {advancedOpen && (
+          <div className="mt-3">
+            <label className="text-xs text-white/50 mb-2 block">
+              Rendering, for development
+            </label>
+            <button
+              onClick={() => onWireframeChange(!wireframe)}
+              className={`w-full rounded-md border px-3 py-2 text-sm transition-colors ${
+                wireframe
+                  ? 'border-blue-400 bg-blue-400/10 text-white'
+                  : 'border-white/10 text-white/70 hover:border-white/25'
+              }`}
+            >
+              Wireframe: {wireframe ? 'On' : 'Off'}
+            </button>
+          </div>
+        )}
       </div>
+
+      <div className="text-xs text-white/30">Drag to rotate. Scroll to zoom.</div>
     </aside>
   )
 }

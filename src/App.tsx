@@ -9,13 +9,11 @@ import {
 import { useEnamelTextures } from './hooks/useEnamelTextures'
 import { usePinPlacements } from './hooks/usePinPlacements'
 import {
-  DEFAULT_COLOR_MODE,
   DEFAULT_LINE_THRESHOLD,
   DEFAULT_OUTLINE_MODE,
   useTracedDesign,
 } from './hooks/useTracedDesign'
 import { DEFAULT_OUTLINE_TOLERANCE, type OutlineMode } from './lib/outline'
-import type { ColorSamplingMode } from './lib/regions'
 import {
   PLATINGS,
   PRODUCTS,
@@ -34,11 +32,11 @@ function App() {
   const [enamelReflectivity, setEnamelReflectivity] = useState(DEFAULT_ENAMEL_REFLECTIVITY)
   const [productId, setProductId] = useState<ProductId>('none')
   const [lineThreshold, setLineThreshold] = useState(DEFAULT_LINE_THRESHOLD)
-  const [colorMode, setColorMode] = useState<ColorSamplingMode>(DEFAULT_COLOR_MODE)
   const [outlineMode, setOutlineMode] = useState<OutlineMode>(DEFAULT_OUTLINE_MODE)
   const [outlineTolerance, setOutlineTolerance] = useState(DEFAULT_OUTLINE_TOLERANCE)
+  const [wireframe, setWireframe] = useState(false)
 
-  const design = useTracedDesign(file, outlineMode, outlineTolerance, lineThreshold, colorMode)
+  const design = useTracedDesign(file, outlineMode, outlineTolerance, lineThreshold)
   const platingColor = PLATINGS.find((p) => p.id === platingId)!.color
   const product = PRODUCTS.find((p) => p.id === productId)!
 
@@ -77,8 +75,8 @@ function App() {
         outlineColor={design?.outlineColor ?? null}
         lineThreshold={lineThreshold}
         onLineThresholdChange={setLineThreshold}
-        colorMode={colorMode}
-        onColorModeChange={setColorMode}
+        wireframe={wireframe}
+        onWireframeChange={setWireframe}
         productId={productId}
         onProductChange={setProductId}
         placement={placement}
@@ -102,6 +100,7 @@ function App() {
           product={product}
           placement={placement}
           baseUrl={import.meta.env.BASE_URL}
+          wireframe={wireframe}
         />
       </main>
     </div>

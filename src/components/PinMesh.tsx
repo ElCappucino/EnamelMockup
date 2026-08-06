@@ -29,6 +29,9 @@ interface PinMeshProps {
   /** Hidden when the pin sits on a product — the post would otherwise pierce thin fabric geometry
    * and show through the back. */
   showPost?: boolean
+  /** Dev aid: renders every material as a wireframe instead of shaded, so the underlying
+   * geometry — plate cavities, fill layering, the ring's hole — can be inspected directly. */
+  wireframe?: boolean
 }
 
 const RADIUS = 1
@@ -204,6 +207,7 @@ export function PinMesh({
   cells,
   islands,
   showPost = true,
+  wireframe = false,
 }: PinMeshProps) {
   const curveSegments = outline ? 1 : 64
   // Both halves are required: the cells cut the plate's cavities and the regions fill them, so
@@ -292,6 +296,7 @@ export function PinMesh({
           metalness={1}
           roughness={roughness}
           envMapIntensity={1.25}
+          wireframe={wireframe}
         />
       </mesh>
 
@@ -302,6 +307,7 @@ export function PinMesh({
           metalness={1}
           roughness={roughness}
           envMapIntensity={1.25}
+          wireframe={wireframe}
         />
       </mesh>
 
@@ -313,6 +319,7 @@ export function PinMesh({
               metalness={1}
               roughness={roughness}
               envMapIntensity={1.25}
+              wireframe={wireframe}
             />
           </mesh>
           <mesh geometry={fillerGeometry!} receiveShadow>
@@ -321,6 +328,7 @@ export function PinMesh({
               metalness={1}
               roughness={roughness}
               envMapIntensity={1.25}
+              wireframe={wireframe}
             />
           </mesh>
           {fillPieces.map((piece, i) => (
@@ -332,6 +340,7 @@ export function PinMesh({
                 clearcoatRoughness={enamel.clearcoatRoughness}
                 metalness={0}
                 envMapIntensity={0.35}
+                wireframe={wireframe}
               />
             </mesh>
           ))}
@@ -348,9 +357,10 @@ export function PinMesh({
               clearcoatRoughness={enamel.clearcoatRoughness}
               metalness={0}
               envMapIntensity={0.35}
+              wireframe={wireframe}
             />
           ) : (
-            <meshStandardMaterial color="#3a3a3f" roughness={0.6} />
+            <meshStandardMaterial color="#3a3a3f" roughness={0.6} wireframe={wireframe} />
           )}
         </mesh>
       )}
@@ -364,6 +374,7 @@ export function PinMesh({
             metalness={1}
             roughness={roughness}
             envMapIntensity={1.1}
+            wireframe={wireframe}
           />
         </mesh>
       )}

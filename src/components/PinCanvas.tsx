@@ -131,6 +131,7 @@ interface PinCanvasProps {
   product: Product
   placement: PinPlacement
   baseUrl: string
+  wireframe: boolean
 }
 
 export function PinCanvas({
@@ -149,6 +150,7 @@ export function PinCanvas({
   product,
   placement,
   baseUrl,
+  wireframe,
 }: PinCanvasProps) {
   const [bounds, setBounds] = useState<ProductBounds | null>(null)
   const showProduct = product.file !== null
@@ -177,6 +179,7 @@ export function PinCanvas({
       cells={cells}
       islands={islands}
       showPost={!showProduct}
+      wireframe={wireframe}
     />
   )
 

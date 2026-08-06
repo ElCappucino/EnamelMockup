@@ -10,7 +10,7 @@ import {
   type Pt,
   type UVTransform,
 } from '../lib/contour'
-import { extractLineIslands, extractRegions, type ColorSamplingMode } from '../lib/regions'
+import { extractLineIslands, extractRegions } from '../lib/regions'
 import {
   buildColorLineMask,
   sampleOutlineColor,
@@ -27,13 +27,15 @@ const ALPHA_THRESHOLD = 40
 export const MIN_LINE_THRESHOLD = 0
 export const MAX_LINE_THRESHOLD = 160
 export const DEFAULT_LINE_THRESHOLD = 70
-export const DEFAULT_COLOR_MODE: ColorSamplingMode = 'dominant'
 export const DEFAULT_OUTLINE_MODE: OutlineMode = 'color'
-const SIMPLIFY_EPSILON = 1.5
-// The silhouette is the pin's most visible edge, so it gets a tighter tolerance than the interior
-// colour cells. At 1.5 it collapsed to ~48 points and RDP turned gentle curvature — and any dent
-// in the source art — into visible angular kinks around the rim.
-const OUTLINE_SIMPLIFY_EPSILON = 0.6
+// RDP tolerance for every traced polygon, in analysis pixels. At 1.5 the silhouette collapsed to
+// ~48 points and RDP turned gentle curvature — and any dent in the source art — into visible
+// angular kinks around the rim. The interior cells fail the same way and are just as visible: a
+// large, smoothly curved region (the lemon design's leaf) collapsed to 17 points, faceting the
+// curve and blunting its pointed tip into a wedge. They share the tighter tolerance rather than
+// getting a looser one — `polygonForLabel` already scales it down per shape, which is where
+// over-simplification actually bites.
+const SIMPLIFY_EPSILON = 0.6
 const MIN_BOUNDARY_POINTS = 8
 const MIN_POLYGON_POINTS = 3
 const MIN_REGION_PIXELS = 60
@@ -135,7 +137,6 @@ export function useTracedDesign(
   outlineMode: OutlineMode = DEFAULT_OUTLINE_MODE,
   outlineTolerance: number = DEFAULT_OUTLINE_TOLERANCE,
   lineThreshold: number = DEFAULT_LINE_THRESHOLD,
-  colorMode: ColorSamplingMode = DEFAULT_COLOR_MODE,
 ) {
   const [design, setDesign] = useState<TracedDesign | null>(null)
 
@@ -217,7 +218,7 @@ export function useTracedDesign(
       let islands: Vector2[][] | null = null
 
       try {
-        const silhouette = traceSimplePolygon(alphaMask, ANALYSIS_SIZE, OUTLINE_SIMPLIFY_EPSILON)
+        const silhouette = traceSimplePolygon(alphaMask, ANALYSIS_SIZE, SIMPLIFY_EPSILON)
         if (silhouette) {
           const transform = computeTransform(silhouette, ANALYSIS_SIZE)
           outline = applyTransform(silhouette, transform).map((p) => new Vector2(p.x, p.y))
@@ -231,7 +232,6 @@ export function useTracedDesign(
               ANALYSIS_SIZE,
               MIN_REGION_PIXELS,
               SIMPLIFY_EPSILON,
-              colorMode,
             )
             if (extracted.regions.length > 0) {
               // A region traced from the fill mask can stray a pixel or two outside the outline
@@ -297,7 +297,7 @@ export function useTracedDesign(
       cancelled = true
       URL.revokeObjectURL(url)
     }
-  }, [file, outlineMode, outlineTolerance, lineThreshold, colorMode])
+  }, [file, outlineMode, outlineTolerance, lineThreshold])
 
   return design
 }
