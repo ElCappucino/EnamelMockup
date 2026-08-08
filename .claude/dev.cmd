@@ -1,4 +1,4 @@
 @echo off
-set "PATH=C:\nvm4w\nodejs;%PATH%"
+set "PATH=C:\nvm4w\nodejs;C:\Program Files\nodejs;%PATH%"
 cd /d "%~dp0.."
 call npm run dev

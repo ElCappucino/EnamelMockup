@@ -42,7 +42,16 @@ const BODY_BEVEL = 0.02
  * The assembly's outer boundary is a different problem; see `faceOutline`. */
 const FACE_INSET = 0.94
 
-const PLATE_FRONT_Z = BODY_THICKNESS / 2 + BODY_BEVEL + 0.015
+// Exactly the ring's own front face, so every metal surface — border, plate and the interior
+// strokes extruded with it — sits at one level. This used to carry an extra +0.015, which stood
+// the whole face assembly proud of the border by a ledge worth ~10% of the pin's thickness; at a
+// grazing angle it read as two separate slabs of metal rather than one stamped plate.
+//
+// Coplanar is safe here, not a z-fighting risk: ExtrudeGeometry's bevel is widest at mid-depth
+// and returns to the original contour at both extremes, so the ring's front face lands on `face`
+// — the very contour the plate is built from. The two meet edge to edge like tiles rather than
+// overlapping, and below the front face the ring's bevel pulls inward, hiding the join.
+const PLATE_FRONT_Z = BODY_THICKNESS / 2 + BODY_BEVEL
 
 // The body is a ring (hole = the plate's footprint) rather than a solid disc, so its front
 // face never occludes the recessed fill. A separate flat backing seals the ring from behind,
