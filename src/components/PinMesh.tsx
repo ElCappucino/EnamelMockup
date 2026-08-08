@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { ExtrudeGeometry, Path, Shape, Vector2, type CanvasTexture } from 'three'
-import { ensureWinding, insetPolygon, pointInPolygon, type UVTransform } from '../lib/contour'
+import { ensureWinding, insetPolygon, type UVTransform } from '../lib/contour'
 import { makeUVGenerator } from '../lib/uvGenerator'
 import type { RegionPiece } from '../hooks/useTracedDesign'
 import type { EnamelType } from '../types'
@@ -37,26 +37,26 @@ interface PinMeshProps {
 const RADIUS = 1
 const BODY_THICKNESS = 0.1
 const BODY_BEVEL = 0.02
-/** Scale for the face assembly's *interior* — the plate's cavities and the enamel pieces that sit
- * in them. They only have to stay registered with each other, so a uniform scale is fine here.
- * The assembly's outer boundary is a different problem; see `faceOutline`. */
+/** Scale for the circular fallback face only — the design-less placeholder, which has no traced
+ * outline to offset and still wants a visible metal border around it. Traced designs no longer
+ * scale their interior; see `buildMetalShape`. */
 const FACE_INSET = 0.94
 
-// Exactly the ring's own front face, so every metal surface — border, plate and the interior
-// strokes extruded with it — sits at one level. This used to carry an extra +0.015, which stood
-// the whole face assembly proud of the border by a ledge worth ~10% of the pin's thickness; at a
-// grazing angle it read as two separate slabs of metal rather than one stamped plate.
+// The top of every metal surface on the pin. There is only one such surface now — border,
+// interior strokes and enclosed detail strokes are all contours of a single extrusion — so this
+// is a height nothing can disagree with.
 //
-// Coplanar is safe here, not a z-fighting risk: ExtrudeGeometry's bevel is widest at mid-depth
-// and returns to the original contour at both extremes, so the ring's front face lands on `face`
-// — the very contour the plate is built from. The two meet edge to edge like tiles rather than
-// overlapping, and below the front face the ring's bevel pulls inward, hiding the join.
-const PLATE_FRONT_Z = BODY_THICKNESS / 2 + BODY_BEVEL
+// Previously the metal was three separate pieces (a border ring, a plate inset by a synthetic
+// border, and islands) whose boundaries were derived two different ways: the interior by a
+// uniform scale about the origin, the plate's boundary by a miter offset following the outline.
+// Those disagree near a concavity, and a cavity that crossed the boundary was silently DROPPED
+// by ExtrudeGeometry's triangulator, filling that well in as solid metal at the plate's top
+// level. Measured on the sample fish: 1 of 6 cavities. Deriving the border from the artwork
+// instead of synthesising one removes the second boundary entirely, so there is nothing left to
+// disagree.
+const METAL_TOP_Z = BODY_THICKNESS / 2 + BODY_BEVEL
 
-// The body is a ring (hole = the plate's footprint) rather than a solid disc, so its front
-// face never occludes the recessed fill. A separate flat backing seals the ring from behind,
-// well clear of any recess depth we'd realistically want.
-const RING_BACK_Z = -(BODY_THICKNESS / 2 + BODY_BEVEL)
+const BODY_BACK_Z = -(BODY_THICKNESS / 2 + BODY_BEVEL)
 const BACKING_THICKNESS = 0.03
 
 const FILL_THICKNESS = 0.02
@@ -118,59 +118,28 @@ function enamelMaterialParams(reflectivity: number) {
   }
 }
 
-// The plate only needs to be deep enough to hold the deepest possible recess — its per-region
-// holes cut all the way through whatever thickness it has, so making it deeper than necessary
-// just turns those holes into long dark tunnels behind the fill. A separate, hole-free filler
-// block (below) handles connecting it solidly back to the ring instead.
-const PLATE_THICKNESS = MAX_RAISED_HEIGHT + FILL_THICKNESS + 0.01
+// Deep enough to hold the deepest recess we allow plus the fill sitting in it, and no deeper —
+// the wells cut clean through whatever thickness the face has, so extra depth would just turn
+// them into long dark tunnels. The body behind closes them off and forms their floor.
+const METAL_THICKNESS = MAX_RAISED_HEIGHT + FILL_THICKNESS + 0.01
 
-// Fills the ring's hole behind the plate, solid (no per-region holes needed — nothing sits
-// back there), all the way to (and slightly past) the ring's own back.
-const FILLER_FRONT_Z = PLATE_FRONT_Z - PLATE_THICKNESS
-const FILLER_THICKNESS = FILLER_FRONT_Z - RING_BACK_Z + 0.01
+const BODY_FRONT_Z = METAL_TOP_Z - METAL_THICKNESS
 
-// Fallback face (no holes, so no tunnel risk) can just be one solid piece spanning the whole
-// ring hole depth.
-const FACE_SOLID_THICKNESS = PLATE_FRONT_Z - RING_BACK_Z + 0.01
+// The body carries the pin's thickness and its rounded rim, and sits entirely behind the metal
+// face. ExtrudeGeometry's bevel is widest at mid-depth and returns to the given contour at both
+// ends, so a beveled body bulges OUT by `bevelSize` rather than chamfering in. Insetting its
+// contour by exactly that much lands its widest point back on the outline, so it fills the face
+// from behind without ever poking past it — a body that protruded would read as a second border
+// sitting at a lower level, which is precisely what this structure exists to prevent.
+const BODY_DEPTH = BODY_FRONT_Z - BODY_BACK_Z - 2 * BODY_BEVEL
+
+// Fallback face (no wells, so no tunnel risk) is one solid piece spanning the whole depth.
+const FACE_SOLID_THICKNESS = METAL_TOP_Z - BODY_BACK_Z + 0.01
 
 type Pt2 = { x: number; y: number }
 
-// Width of the metal border between the pin's silhouette and the face assembly it encloses, in
-// shape-space units — the silhouette spans roughly ±0.92 (see computeTransform's halfExtent), so
-// this reads as a border a little under 5% of the pin's width. Picked to land within a hair of
-// the border the old uniform scale produced on the designs that already looked right.
-const BORDER_WIDTH = 0.045
-// A protrusion narrower than twice the border has no room for one, and the offset folds back on
-// itself there. Retrying narrower is better than shipping a boundary that escapes the outline.
-const MIN_BORDER_WIDTH = 0.008
-
-/** The face assembly's outer boundary: the silhouette pulled inward by a uniform border.
- *
- * This used to be a uniform scale of the silhouette about the origin, which is only an inward
- * offset when the outline is star-shaped. A silhouette with deep concavities — the notches
- * between a fish's fins, say — has boundary points that a scale drags across the outline and out
- * the other side. That left the body ring's hole no longer contained by its own outer contour,
- * and ExtrudeGeometry's triangulator drops an uncontained hole without reporting anything: the
- * ring came out as a solid disc, and its front face sat in front of the enamel and buried it. The
- * pin rendered as bare plating for every design whose outline wasn't roughly convex.
- *
- * A miter offset follows the outline's actual shape instead. It can still fold back on a
- * protrusion thinner than twice the border, so the result is checked for containment and retried
- * narrower until it fits. */
-function faceOutline(outline: Pt2[] | null): Pt2[] | null {
-  if (!outline || outline.length < 3) return outline
-
-  let inset = insetPolygon(outline, BORDER_WIDTH)
-  for (let width = BORDER_WIDTH; width >= MIN_BORDER_WIDTH; width /= 2) {
-    inset = insetPolygon(outline, width)
-    if (inset.every((p) => pointInPolygon(p, outline))) break
-  }
-  return inset
-}
-
-/** Scale to pair with a face-assembly contour. A traced outline has already been offset by
- * `faceOutline`, so it needs none; the circular fallback has no outline to offset and still
- * relies on the scale to leave room for the border. */
+/** Scale to pair with a face contour. A traced outline is used as-is; the circular fallback has
+ * no artwork to take a border from and still wants one, so it keeps the uniform inset. */
 function faceScale(face: Pt2[] | null): number {
   return face ? 1 : FACE_INSET
 }
@@ -202,32 +171,24 @@ function buildShape(points: Pt2[] | null, scale: number): Shape {
   return shape
 }
 
-/** The plate shape with a cavity cut out for every well, so recessed/flush fill shows through.
- * `face` is the assembly's outer boundary from `faceOutline`; the cavities keep the interior's
- * own scale, which is what registers them with the enamel pieces. */
-function buildPlateShape(face: Pt2[] | null, cells: RegionPiece[], cellScale: number): Shape {
-  const shape = buildShape(face, faceScale(face))
+/** Every piece of metal on the pin's face, as one shape: the silhouette itself, with a cavity cut
+ * out for each enamel well.
+ *
+ * The border and the strokes between colour fields are not built — they are simply whatever metal
+ * is left once the wells are removed, which is what a stamped pin actually is. That makes the
+ * border the artwork's own outline stroke rather than a synthetic one, and it means no second
+ * boundary exists that the wells could fail to agree with.
+ *
+ * Containment comes for free: `useTracedDesign` already clamps every region inside the silhouette,
+ * so a well can never escape the contour it is cut from — the failure where a stray cavity got
+ * silently dropped is unreachable by construction. */
+function buildMetalShape(outline: Pt2[] | null, cells: RegionPiece[]): Shape {
+  const shape = buildShape(outline, faceScale(outline))
   for (const cell of cells) {
     if (cell.points.length < 3) continue
     // Outward offset: the cavity has to clear the enamel that fills it (see FILL_WALL_GAP).
-    shape.holes.push(pathFromPoints(insetPolygon(cell.points, -FILL_WALL_GAP), cellScale))
+    shape.holes.push(pathFromPoints(insetPolygon(cell.points, -FILL_WALL_GAP), faceScale(outline)))
   }
-  return shape
-}
-
-function buildHolePath(points: Pt2[] | null, scale: number): Path {
-  if (points && points.length >= 3) return pathFromPoints(points, scale)
-  const path = new Path()
-  path.absarc(0, 0, RADIUS * scale, 0, Math.PI * 2, false)
-  return path
-}
-
-/** The body as a ring: outer boundary minus the plate's footprint, so its front face never
- * occludes it. The hole has to be the plate's exact footprint — a mismatch either shows plating
- * through a gap or puts the ring's face over the enamel. */
-function buildRingShape(outline: Pt2[] | null, face: Pt2[] | null): Shape {
-  const shape = buildShape(outline, 1)
-  shape.holes.push(buildHolePath(face, faceScale(face)))
   return shape
 }
 
@@ -246,6 +207,21 @@ function buildFlatGeometry(
     ...(uvGenerator ? { UVGenerator: uvGenerator } : {}),
   })
   geometry.translate(0, 0, frontZ - depth)
+  return geometry
+}
+
+/** Extrudes a beveled piece so its front face lands at frontZ. A beveled extrude spans
+ * -bevelThickness .. depth + bevelThickness, hence the shifted translate. */
+function buildBeveledGeometry(shape: Shape, depth: number, frontZ: number, curveSegments: number) {
+  const geometry = new ExtrudeGeometry(shape, {
+    depth,
+    bevelEnabled: true,
+    bevelThickness: BODY_BEVEL,
+    bevelSize: BODY_BEVEL,
+    bevelSegments: 4,
+    curveSegments,
+  })
+  geometry.translate(0, 0, frontZ - (depth + BODY_BEVEL))
   return geometry
 }
 
@@ -273,83 +249,74 @@ export function PinMesh({
   const roughness = metalRoughness(metalReflectivity)
   const enamel = enamelMaterialParams(enamelReflectivity)
 
-  // Shared by every piece of the face assembly, so the ring's hole and the plate that fills it
-  // are the same contour rather than two separately-derived ones.
-  const face = useMemo(() => faceOutline(outline), [outline])
-
+  // The pin's thickness and rounded rim, sitting wholly behind the metal face. Inset by the
+  // bevel it bulges back out by, so it fills the face from behind without protruding past it.
   const bodyGeometry = useMemo(() => {
-    const shape = buildRingShape(outline, face)
-    const geometry = new ExtrudeGeometry(shape, {
-      depth: BODY_THICKNESS,
-      bevelEnabled: true,
-      bevelThickness: BODY_BEVEL,
-      bevelSize: BODY_BEVEL,
-      bevelSegments: 4,
-      curveSegments,
-    })
-    geometry.center()
-    return geometry
-  }, [outline, face, curveSegments])
-
-  const backingGeometry = useMemo(() => {
-    const shape = buildShape(outline, 1)
-    return buildFlatGeometry(shape, BACKING_THICKNESS, RING_BACK_Z, curveSegments)
+    const contour = outline ? insetPolygon(outline, BODY_BEVEL) : null
+    const shape = buildShape(contour, contour ? 1 : FACE_INSET - BODY_BEVEL)
+    return buildBeveledGeometry(shape, BODY_DEPTH, BODY_FRONT_Z, curveSegments)
   }, [outline, curveSegments])
 
-  // Fallback (no line-art detected): single textured face, filling the ring's hole solidly.
-  // No holes here, so no tunnel risk — safe to make it span the whole depth in one piece.
-  const faceGeometry = useMemo(() => {
-    const shape = buildShape(face, faceScale(face))
-    const uvGenerator = makeUVGenerator(uv)
-    return buildFlatGeometry(shape, FACE_SOLID_THICKNESS, PLATE_FRONT_Z, curveSegments, uvGenerator)
-  }, [face, uv, curveSegments])
+  const backingGeometry = useMemo(() => {
+    const contour = outline ? insetPolygon(outline, BODY_BEVEL) : null
+    const shape = buildShape(contour, contour ? 1 : FACE_INSET - BODY_BEVEL)
+    return buildFlatGeometry(shape, BACKING_THICKNESS, BODY_BACK_Z, curveSegments)
+  }, [outline, curveSegments])
 
-  // Segmented mode: a shallow metal plate (just deep enough for the recess) plus one piece per
-  // color region, backed by a solid hole-free filler that connects the plate to the ring/backing.
-  const plateGeometry = useMemo(() => {
+  // Fallback (no line-art detected): single textured face spanning the whole depth. No wells, so
+  // no tunnel risk, and it keeps the uniform inset since there is no artwork border to inherit.
+  const faceGeometry = useMemo(() => {
+    const shape = buildShape(outline, faceScale(outline))
+    const uvGenerator = makeUVGenerator(uv)
+    return buildFlatGeometry(shape, FACE_SOLID_THICKNESS, METAL_TOP_Z, curveSegments, uvGenerator)
+  }, [outline, uv, curveSegments])
+
+  // Every metal surface on the face, as one extrusion: the silhouette with a well cut out per
+  // colour area, plus any enclosed detail stroke as a sibling contour of the same slab. Sharing
+  // one extrusion is what makes their heights identical by construction rather than by matching
+  // constants — there is no second metal top left to drift.
+  const metalGeometry = useMemo(() => {
     if (!hasRegions || !cells) return null
-    const shape = buildPlateShape(face, cells, FACE_INSET)
-    // Islands sit inside the plate's own holes, so they extrude as sibling contours of the same
-    // slab rather than as part of its outline — same material, same depth, one geometry.
+    const shape = buildMetalShape(outline, cells)
     const islandShapes = (islands ?? [])
       .filter((points) => points.length >= 3)
-      .map((points) => tracePath(new Shape(), ensureWinding(points, true), FACE_INSET))
+      .map((points) => tracePath(new Shape(), ensureWinding(points, true), faceScale(outline)))
 
     return buildFlatGeometry(
       [shape, ...islandShapes],
-      PLATE_THICKNESS,
-      PLATE_FRONT_Z,
+      METAL_THICKNESS,
+      METAL_TOP_Z,
       curveSegments,
     )
-  }, [hasRegions, cells, islands, face, curveSegments])
-
-  const fillerGeometry = useMemo(() => {
-    if (!hasRegions) return null
-    const shape = buildShape(face, faceScale(face))
-    return buildFlatGeometry(shape, FILLER_THICKNESS, FILLER_FRONT_Z, curveSegments)
-  }, [hasRegions, face, curveSegments])
+  }, [hasRegions, cells, islands, outline, curveSegments])
 
   const fillFrontZ =
-    enamelType === 'soft' ? PLATE_FRONT_Z - raisedHeight : PLATE_FRONT_Z - FLUSH_EPS
+    enamelType === 'soft' ? METAL_TOP_Z - raisedHeight : METAL_TOP_Z - FLUSH_EPS
 
   // Two layers, both at the traced boundary with no shrink, so pieces sharing an edge inside a
   // well stay flush: the well's base coat, then its color areas a hair in front of it. Anywhere
-  // the color areas don't quite meet, the base coat shows rather than the plate.
+  // the color areas don't quite meet, the base coat shows rather than the metal.
+  //
+  // These share the metal face's scale, which is what registers each piece with the well it sits
+  // in. The two used to be scaled differently, and that mismatch is what let a well escape its
+  // own plate.
   const fillPieces = useMemo(() => {
     if (!hasRegions) return []
+    const scale = faceScale(outline)
     const build = (piece: RegionPiece, frontZ: number) => ({
-      geometry: buildFlatGeometry(buildShape(piece.points, FACE_INSET), FILL_THICKNESS, frontZ, 1),
+      geometry: buildFlatGeometry(buildShape(piece.points, scale), FILL_THICKNESS, frontZ, 1),
       color: piece.color,
     })
     return [
       ...(cells ?? []).map((cell) => build(cell, fillFrontZ)),
       ...(regions ?? []).map((region) => build(region, fillFrontZ + FILL_LAYER_GAP)),
     ]
-  }, [hasRegions, cells, regions, fillFrontZ])
+  }, [hasRegions, cells, regions, outline, fillFrontZ])
 
   return (
     <group>
-      {/* Metal body / border (a ring, so it never occludes the recessed fill) */}
+      {/* Body: thickness and rounded rim, entirely behind the face and never past its edge.
+          Also forms the floor of every well, since the wells cut clean through the face. */}
       <mesh geometry={bodyGeometry} castShadow receiveShadow>
         <meshStandardMaterial
           color={platingColor}
@@ -360,7 +327,7 @@ export function PinMesh({
         />
       </mesh>
 
-      {/* Backing plate: seals the body ring from behind */}
+      {/* Backing plate: seals the body from behind */}
       <mesh geometry={backingGeometry} receiveShadow>
         <meshStandardMaterial
           color={platingColor}
@@ -373,16 +340,9 @@ export function PinMesh({
 
       {hasRegions ? (
         <>
-          <mesh geometry={plateGeometry!} castShadow receiveShadow>
-            <meshStandardMaterial
-              color={platingColor}
-              metalness={1}
-              roughness={roughness}
-              envMapIntensity={1.25}
-              wireframe={wireframe}
-            />
-          </mesh>
-          <mesh geometry={fillerGeometry!} receiveShadow>
+          {/* Border, colour-field strokes and enclosed detail strokes — one extrusion, so one
+              height. */}
+          <mesh geometry={metalGeometry!} castShadow receiveShadow>
             <meshStandardMaterial
               color={platingColor}
               metalness={1}
