@@ -1,12 +1,20 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { OrbitControls, ContactShadows, Environment, Lightformer, Html } from '@react-three/drei'
+import {
+  OrbitControls,
+  ContactShadows,
+  Environment,
+  Lightformer,
+  Html,
+  useGLTF,
+} from '@react-three/drei'
 import { ACESFilmicToneMapping, BackSide, MathUtils } from 'three'
 import type { CanvasTexture, PerspectiveCamera, PointLight, Vector2 } from 'three'
 import type { UVTransform } from '../lib/contour'
 import type { RegionPiece } from '../hooks/useTracedDesign'
 import {
   MM_PER_WORLD_UNIT,
+  PRODUCTS,
   type EnamelType,
   type PinPlacement,
   type Product,
@@ -65,6 +73,31 @@ const GL_PROPS = {
   antialias: true,
   toneMapping: ACESFilmicToneMapping,
   toneMappingExposure: 1.1,
+  // Required to read the canvas back as an image. Without it the drawing buffer is cleared as
+  // soon as the frame is composited and `toBlob` yields a blank PNG.
+  preserveDrawingBuffer: true,
+}
+
+/** Hands the parent a function that reads the current frame back as a PNG blob.
+ *
+ * Renders on demand first, so the capture reflects the very latest camera and geometry rather
+ * than whatever the render loop happened to leave in the buffer. */
+function CaptureBridge({ onReady }: { onReady: (capture: CaptureFn) => void }) {
+  const gl = useThree((state) => state.gl)
+  const scene = useThree((state) => state.scene)
+  const camera = useThree((state) => state.camera)
+
+  useEffect(() => {
+    onReady(
+      () =>
+        new Promise<Blob | null>((resolve) => {
+          gl.render(scene, camera)
+          gl.domElement.toBlob(resolve, 'image/png')
+        }),
+    )
+  }, [gl, scene, camera, onReady])
+
+  return null
 }
 
 /** Pulls the camera back far enough to frame whatever is on screen. Products differ hugely in
@@ -74,7 +107,15 @@ const GL_PROPS = {
  * ordinary re-render would otherwise snatch the camera back from wherever the user had orbited
  * to, every time they touched a slider. Keying off the product rather than the effect's inputs
  * makes that impossible regardless of which dependency churns. */
-function CameraRig({ bounds, productId }: { bounds: ProductBounds | null; productId: ProductId }) {
+function CameraRig({
+  bounds,
+  productId,
+  onFramed,
+}: {
+  bounds: ProductBounds | null
+  productId: ProductId
+  onFramed?: (id: ProductId) => void
+}) {
   // Individual selectors, so this doesn't re-render on unrelated store updates.
   const camera = useThree((state) => state.camera)
   const size = useThree((state) => state.size)
@@ -93,6 +134,7 @@ function CameraRig({ bounds, productId }: { bounds: ProductBounds | null; produc
       cam.far = 100
       cam.updateProjectionMatrix()
       framedFor.current = productId
+      onFramed?.(productId)
       return
     }
 
@@ -110,7 +152,8 @@ function CameraRig({ bounds, productId }: { bounds: ProductBounds | null; produc
     cam.far = dist * 10
     cam.updateProjectionMatrix()
     framedFor.current = productId
-  }, [productId, bounds, camera, size])
+    onFramed?.(productId)
+  }, [productId, bounds, camera, size, onFramed])
 
   return null
 }
@@ -133,7 +176,14 @@ interface PinCanvasProps {
   baseUrl: string
   wireframe: boolean
   backgroundColor: string
+  /** Receives the frame-capture function once the renderer exists, so the panel can save a PNG. */
+  onCaptureReady?: (capture: CaptureFn) => void
+  /** Fires once a product's model is measured and the camera has framed it — the signal a batch
+   * export waits on before capturing, instead of guessing at a delay. */
+  onProductFramed?: (id: ProductId) => void
 }
+
+export type CaptureFn = () => Promise<Blob | null>
 
 export function PinCanvas({
   platingColor,
@@ -153,9 +203,20 @@ export function PinCanvas({
   baseUrl,
   wireframe,
   backgroundColor,
+  onCaptureReady,
+  onProductFramed,
 }: PinCanvasProps) {
   const [bounds, setBounds] = useState<ProductBounds | null>(null)
   const showProduct = product.file !== null
+
+  // Warm every product model up front. A batch export switches products in quick succession, and
+  // an unloaded model would suspend mid-run — the capture would then land on the loading fallback
+  // instead of the mockup.
+  useEffect(() => {
+    for (const item of PRODUCTS) {
+      if (item.file) useGLTF.preload(baseUrl + item.file)
+    }
+  }, [baseUrl])
 
   // Drop stale framing the moment the product changes. The rig waits for bounds before framing,
   // so without this it would measure the new product against the previous one's box and then
@@ -258,7 +319,12 @@ export function PinCanvas({
         />
       )}
 
-      <CameraRig bounds={showProduct ? bounds : null} productId={product.id} />
+      <CameraRig
+        bounds={showProduct ? bounds : null}
+        productId={product.id}
+        onFramed={onProductFramed}
+      />
+      {onCaptureReady && <CaptureBridge onReady={onCaptureReady} />}
 
       <OrbitControls
         makeDefault

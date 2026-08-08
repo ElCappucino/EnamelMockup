@@ -133,6 +133,12 @@ interface ControlPanelProps {
   placement: PinPlacement
   onPlacementChange: (patch: Partial<PinPlacement>) => void
   onPlacementReset: () => void
+  /** False until a design is loaded — there is nothing worth saving before that. */
+  canExport: boolean
+  /** Non-null while an export is running, so the buttons can report progress and lock. */
+  exportProgress: { done: number; total: number } | null
+  onExportCurrent: () => void
+  onExportAll: () => void
 }
 
 export function ControlPanel({
@@ -165,6 +171,10 @@ export function ControlPanel({
   placement,
   onPlacementChange,
   onPlacementReset,
+  canExport,
+  exportProgress,
+  onExportCurrent,
+  onExportAll,
 }: ControlPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
@@ -515,6 +525,33 @@ export function ControlPanel({
           <p className="mt-1 text-xs text-white/30">Saved per product.</p>
         </div>
       )}
+
+      <div>
+        <label className="text-sm font-medium text-white/70 mb-2 block">Save Mockup</label>
+        <div className="grid grid-cols-1 gap-2">
+          <button
+            onClick={onExportCurrent}
+            disabled={!canExport || !!exportProgress}
+            className="rounded-md border border-white/10 px-3 py-2 text-sm text-white/70 transition-colors hover:border-white/25 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-white/10"
+          >
+            Save this view
+          </button>
+          <button
+            onClick={onExportAll}
+            disabled={!canExport || !!exportProgress}
+            className="rounded-md border border-blue-400/40 bg-blue-400/10 px-3 py-2 text-sm text-white transition-colors hover:border-blue-400 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-blue-400/40"
+          >
+            {exportProgress && exportProgress.total > 1
+              ? `Saving ${exportProgress.done} / ${exportProgress.total}…`
+              : `Save all ${PRODUCTS.length} mockups`}
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-white/30">
+          {canExport
+            ? 'PNGs at the size shown on screen. Saving all steps through every product, so your browser may ask permission to download multiple files.'
+            : 'Upload a design first.'}
+        </p>
+      </div>
 
       <div className="mt-auto border-t border-white/10 pt-4">
         <button
